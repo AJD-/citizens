@@ -10,6 +10,7 @@ import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 
 public class Citizen<T extends Citizen<T>> extends Entity<T> {
+	// CHECKSTYLE:OFF
 	private static final int[][] BLOCKING_DIRECTIONS_5x5 = {
 		{CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_EAST, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_EAST, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_WEST, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_WEST},
 		{CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_EAST, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_EAST, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_WEST, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_WEST},
@@ -22,6 +23,7 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 		{512, 512, 0, 1536, 1536},
 		{256, 256, 0, 1792, 1792},
 		{256, 256, 0, 1792, 1792}};
+	// CHECKSTYLE:ON
 	private static final int CENTER_INDEX_5X5 = 2;
 	public final CitizensPlugin plugin;
 	private final Client client;
@@ -144,8 +146,7 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 			int dx = worldPosition.getX() - prevWorldPosition.getX();
 			int dy = worldPosition.getY() - prevWorldPosition.getY();
 
-			if (distance == 1 && dx != 0 && dy != 0) // test for blockage along diagonal
-			{
+			if (distance == 1 && dx != 0 && dy != 0) { // test for blockage along diagonal
 				// if blocked diagonally, go around in an L shape (2 options)
 				int[][] colliders = client.getCollisionMaps()[worldPosition.getPlane()].getFlags();
 				final int diagonalTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 - dy][CENTER_INDEX_5X5 + dx];
@@ -166,8 +167,7 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 						dx = 0;
 					}
 				}
-			} else if (distance == 2 && Math.abs(Math.abs(dy) - Math.abs(dx)) == 1) // test for blockage along knight-style moves
-			{
+			} else if (distance == 2 && Math.abs(Math.abs(dy) - Math.abs(dx)) == 1) { // test for blockage along knight-style moves
 				int[][] colliders = client.getCollisionMaps()[worldPosition.getPlane()].getFlags();
 				final int diagonalTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 - dy][CENTER_INDEX_5X5 + dx];
 				final int axisXTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5][CENTER_INDEX_5X5 + dx] | BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 + dy][CENTER_INDEX_5X5] | CollisionDataFlag.BLOCK_MOVEMENT_FULL;

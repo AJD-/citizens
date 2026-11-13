@@ -22,7 +22,7 @@ public final class Util {
 
 	public static void initAnimationData(CitizensPlugin plugin) {
 		try (InputStream inputStream = plugin.getClass().getResourceAsStream("/animationData.json");
-			 Reader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+				Reader reader = new BufferedReader(new InputStreamReader(inputStream))) {
 			Type type = new TypeToken<Map<String, AnimData>>() {
 			}.getType();
 			animData = plugin.gson.fromJson(reader, type);
