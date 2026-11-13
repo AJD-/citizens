@@ -11,3 +11,4 @@ citizens.log
 !.idea/codeStyles/codeStyleConfig.xml
 bin/
 dump/
+*.class
