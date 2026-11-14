@@ -36,10 +36,11 @@ final class MapFile {
 		}
 		Map<Integer, Integer> map = new TreeMap<>();
 		for (Map.Entry<String, Json.Value> e : ((Json.Obj) root).members.entrySet()) {
-			if (!e.getKey().matches("-?\\d+") || !(e.getValue() instanceof Json.Num) || !((Json.Num) e.getValue()).isInt()) {
+			Integer key = Json.toInt(e.getKey());
+			if (key == null || !(e.getValue() instanceof Json.Num) || !((Json.Num) e.getValue()).isInt()) {
 				throw new MapFileException(file + ": entry \"" + e.getKey() + "\" is not an integer id mapped to an integer id");
 			}
-			map.put(Integer.parseInt(e.getKey()), ((Json.Num) e.getValue()).intValue());
+			map.put(key, ((Json.Num) e.getValue()).intValue());
 		}
 		return map;
 	}
@@ -73,7 +74,9 @@ final class MapFile {
 			v.kitTargets.forEach((target, ids) -> kits.add("\"" + target + "\": " + ids));
 			sb.append(String.join(", ", kits)).append("}, \"npcUsersOld\": ").append(v.npcUsers)
 				.append(", \"npcUsersNew\": ").append(v.newNpcUsers)
-				.append(", \"geometryMatches\": ").append(v.geometryMatches).append('}');
+				.append(", \"geometryMatches\": ").append(v.geometryMatches)
+				.append(", \"geometryDuplicates\": ").append(v.geometryDuplicates)
+				.append(", \"note\": ").append(v.note == null ? "null" : Json.quote(v.note)).append('}');
 			entries.add(sb.toString());
 		}
 		return entries.isEmpty() ? "{}\n" : "{\n" + String.join(",\n", entries) + "\n}\n";

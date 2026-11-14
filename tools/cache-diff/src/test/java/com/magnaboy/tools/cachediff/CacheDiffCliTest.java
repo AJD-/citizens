@@ -97,6 +97,39 @@ public class CacheDiffCliTest {
 		assertOneLineError();
 	}
 
+	@Test
+	public void hugeNumbersInTheMapFailWithOneLine() throws Exception {
+		Path data = tmp.newFolder("data").toPath();
+		Path map = tmp.newFile("map.json").toPath();
+		Files.write(map, "{ \"12\": 99999999999 }".getBytes(StandardCharsets.UTF_8));
+		assertEquals(CacheDiff.FAILED, run("apply", "--map", map.toString(), "--data", data.toString()));
+		assertOneLineError();
+		Files.write(map, "{ \"99999999999\": 12 }".getBytes(StandardCharsets.UTF_8));
+		err.reset();
+		assertEquals(CacheDiff.FAILED, run("apply", "--map", map.toString(), "--data", data.toString()));
+		assertTrue(err().contains("not an integer id"));
+		assertOneLineError();
+	}
+
+	@Test
+	public void duplicateKeyInTheMapFailsWithOneLine() throws Exception {
+		Path data = tmp.newFolder("data").toPath();
+		Path map = tmp.newFile("map.json").toPath();
+		Files.write(map, "{ \"12\": 13, \"12\": 14 }".getBytes(StandardCharsets.UTF_8));
+		assertEquals(CacheDiff.FAILED, run("apply", "--map", map.toString(), "--data", data.toString()));
+		assertTrue(err().contains("duplicate key \"12\""));
+		assertOneLineError();
+	}
+
+	@Test
+	public void hugeEnumIdFailsWithOneLine() throws Exception {
+		Path enumFile = tmp.newFile("AnimationID.java").toPath();
+		Files.write(enumFile, "enum AnimationID {\n\tHuge(99999999999);\n}\n".getBytes(StandardCharsets.UTF_8));
+		assertEquals(CacheDiff.FAILED, run("anims", "--old", "x", "--new", "y", "--enum", enumFile.toString()));
+		assertTrue(err().contains("out of int range"));
+		assertOneLineError();
+	}
+
 	private Path dataWithOneFile() throws Exception {
 		Path data = tmp.newFolder("RegionData").toPath();
 		Files.write(data.resolve("1.json"), ModelIdRewriterTest.BEFORE.getBytes(StandardCharsets.UTF_8));

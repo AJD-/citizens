@@ -91,6 +91,44 @@ public class ModelIdRewriterTest {
 		assertTrue(r.edits.isEmpty());
 	}
 
+	private static String citizen(String modelIds) {
+		return "{\"citizenRoster\": [{\"name\": \"Bob\", \"modelIds\": [" + modelIds + "]}]}";
+	}
+
+	private static Map<Integer, Integer> map(int... pairs) {
+		Map<Integer, Integer> map = new HashMap<>();
+		for (int i = 0; i < pairs.length; i += 2) {
+			map.put(pairs[i], pairs[i + 1]);
+		}
+		return map;
+	}
+
+	@Test
+	public void theSameIdTwiceInOneArrayIsReplacedBothTimes() throws Exception {
+		ModelIdRewriter.Result r = rewrite(citizen("5, 7, 5"), map(5, 6));
+		assertEquals(citizen("6, 7, 6"), r.text);
+		assertEquals(2, r.edits.size());
+	}
+
+	@Test
+	public void numbersAreMatchedWholeNotByPrefix() throws Exception {
+		ModelIdRewriter.Result r = rewrite(citizen("11, 1, 111"), map(1, 9));
+		assertEquals(citizen("11, 9, 111"), r.text);
+	}
+
+	@Test
+	public void aFileWithoutTrailingNewlineStaysWithoutOne() throws Exception {
+		String text = "{\r\n  \"citizenRoster\": [ { \"modelIds\": [\r\n    1\r\n  ] } ]\r\n}";
+		ModelIdRewriter.Result r = rewrite(text, map(1, 2));
+		assertEquals(text.replace("    1", "    2"), r.text);
+	}
+
+	@Test
+	public void aCycleIsAppliedOncePerOriginalValue() throws Exception {
+		ModelIdRewriter.Result r = rewrite(citizen("1, 2, 3"), map(1, 2, 2, 1));
+		assertEquals(citizen("2, 1, 3"), r.text);
+	}
+
 	@Test
 	public void noMatchingIdsLeavesTheTextAlone() throws Exception {
 		Map<Integer, Integer> map = new HashMap<>();

@@ -22,13 +22,21 @@ final class AnimationEnum {
 		}
 	}
 
-	/** Constants in source order; line and block comments are ignored. */
+	/**
+	 * Constants in source order; line and block comments are ignored.
+	 *
+	 * @throws IllegalArgumentException if a constant's id does not fit in an int
+	 */
 	static List<Constant> parse(String source) {
 		String code = source.replaceAll("(?s)/\\*.*?\\*/", "").replaceAll("//[^\\n]*", "");
 		List<Constant> out = new ArrayList<>();
 		Matcher m = CONSTANT.matcher(code);
 		while (m.find()) {
-			out.add(new Constant(m.group(1), Integer.parseInt(m.group(2))));
+			Integer id = Json.toInt(m.group(2));
+			if (id == null) {
+				throw new IllegalArgumentException("animation constant " + m.group(1) + " has an id out of int range: " + m.group(2));
+			}
+			out.add(new Constant(m.group(1), id));
 		}
 		return out;
 	}

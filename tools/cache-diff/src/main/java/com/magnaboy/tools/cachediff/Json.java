@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * A minimal JSON parser that remembers where every value sits in the source text.
@@ -65,12 +66,17 @@ final class Json {
 			this.text = text;
 		}
 
+		/** True when the number is an integer that fits in an {@code int}. */
 		boolean isInt() {
-			return text.matches("-?\\d+");
+			return toInt(text) != null;
 		}
 
 		int intValue() {
-			return Integer.parseInt(text);
+			Integer v = toInt(text);
+			if (v == null) {
+				throw new IllegalStateException("not an int: " + text);
+			}
+			return v;
 		}
 	}
 
@@ -96,6 +102,34 @@ final class Json {
 		ParseException(String message) {
 			super(message);
 		}
+	}
+
+	/** The JSON number grammar. */
+	private static final Pattern NUMBER = Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
+	private static final Pattern INTEGER = Pattern.compile("-?[0-9]{1,10}");
+
+	/** The integer value of {@code s}, or null if it is not an integer in {@code int} range. */
+	static Integer toInt(String s) {
+		if (s == null || !INTEGER.matcher(s).matches()) {
+			return null;
+		}
+		long v = Long.parseLong(s);
+		return v < Integer.MIN_VALUE || v > Integer.MAX_VALUE ? null : (int) v;
+	}
+
+	/** {@code s} as a JSON string literal. */
+	static String quote(String s) {
+		StringBuilder sb = new StringBuilder("\"");
+		for (char c : s.toCharArray()) {
+			if (c == '"' || c == '\\') {
+				sb.append('\\').append(c);
+			} else if (c < 0x20) {
+				sb.append(String.format("\\u%04x", (int) c));
+			} else {
+				sb.append(c);
+			}
+		}
+		return sb.append('"').toString();
 	}
 
 	static Value parse(String text) throws ParseException {
@@ -190,7 +224,12 @@ final class Json {
 				if (peek() != '"') {
 					throw error("expected a key");
 				}
+				int keyStart = pos;
 				String key = string().value;
+				if (members.containsKey(key)) {
+					pos = keyStart;
+					throw error("duplicate key \"" + key + "\"");
+				}
 				skipWhitespace();
 				expect(':');
 				skipWhitespace();
@@ -284,12 +323,17 @@ final class Json {
 			}
 		}
 
-		Num number() {
+		Num number() throws ParseException {
 			int start = pos;
 			while (pos < s.length() && "+-0123456789.eE".indexOf(s.charAt(pos)) >= 0) {
 				pos++;
 			}
-			return new Num(start, pos, s.substring(start, pos));
+			String text = s.substring(start, pos);
+			if (!NUMBER.matcher(text).matches()) {
+				pos = start;
+				throw error("malformed number \"" + text + "\"");
+			}
+			return new Num(start, pos, text);
 		}
 
 		Literal literal(String word) throws ParseException {

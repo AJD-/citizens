@@ -139,7 +139,60 @@ public class ModelMatcherTest {
 		oldCache.model(OTHER, "a");
 		newCache.model(OTHER, "a");
 		votes(100, 6, OLD);
-		assertNoProposal(verdict(), Status.CHANGED_IN_PLACE);
+		Verdict v = verdict();
+		assertNoProposal(v, Status.CHANGED_IN_PLACE);
+		assertTrue(v.note.contains("geometry also at 30"));
+	}
+
+	@Test
+	public void aFreshCopyIsAMoveEvenWithAPreexistingDuplicateWhichIsNoted() {
+		// Reviewer's example: old 10 and 30 both "a"; new 30 still "a" plus a fresh 20 "a".
+		oldCache.model(OTHER, "a");
+		newCache.model(OTHER, "a").model(NEW, "a");
+		Verdict v = verdict();
+		assertProposal(v, Status.MOVED, NEW, Rule.GEOMETRY_MOVE);
+		assertTrue(v.note.contains("geometry also at 30 (already there in old cache"));
+		assertEquals(java.util.Collections.singletonList(OTHER), v.geometryDuplicates);
+		assertTrue(MapFile.formatEvidence(java.util.Collections.singletonList(v)).contains("\"geometryDuplicates\": [30]"));
+	}
+
+	@Test
+	public void aGeometryMoveNotesKitAndVotesPointingElsewhere() {
+		newCache.model(OTHER, "a");
+		oldCache.kit(3, OLD);
+		newCache.kit(3, NEW);
+		votes(100, 4, NEW);
+		Verdict v = verdict();
+		assertProposal(v, Status.MOVED, OTHER, Rule.GEOMETRY_MOVE);
+		assertTrue(v.note.contains("kit points elsewhere (20)"));
+		assertTrue(v.note.contains("top vote points elsewhere (20)"));
+	}
+
+	@Test
+	public void aKitTargetAbsentFromTheNewCacheIsUnresolved() {
+		oldCache.kit(3, OLD);
+		newCache.kit(3, 40);
+		Verdict v = verdict();
+		assertNoProposal(v, Status.UNRESOLVED);
+		assertTrue(v.note.contains("kit-only target 40 is absent from new cache"));
+	}
+
+	@Test
+	public void aVotesOnlyTargetUndecodableInTheNewCacheIsUnresolved() {
+		newCache.undecodable(NEW);
+		votes(100, 5, NEW);
+		Verdict v = verdict();
+		assertNoProposal(v, Status.UNRESOLVED);
+		assertTrue(v.note.contains("votes-only target 20 is undecodable in new cache"));
+	}
+
+	@Test
+	public void inPlaceCountsNpcsThatKeepTheIdNotPositions() {
+		oldCache.npc(100, OLD, OLD);
+		newCache.npc(100, OLD, OLD);
+		votes(200, 2, NEW);
+		// Two same-id positions, but only one of the three NPCs keeps the id.
+		assertNoProposal(verdict(), Status.UNRESOLVED);
 	}
 
 	@Test

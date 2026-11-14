@@ -38,21 +38,27 @@ final class AnimsCommand {
 			AnimMatcher matcher = new AnimMatcher(oldCache, newCache);
 			Map<Integer, AnimMatcher.Verdict> cache = new HashMap<>();
 			List<String> changed = new ArrayList<>();
+			List<String> absent = new ArrayList<>();
 			out.println(String.format("%-22s  %6s  %-9s  %8s  %s", "constant", "id", "status", "proposal", "details"));
 			for (AnimationEnum.Constant c : constants) {
 				AnimMatcher.Verdict v = cache.computeIfAbsent(c.id, matcher::compare);
-				String details = "";
+				String details = String.join("; ", v.differences);
 				if (v.changed) {
 					changed.add(c.name + "(" + c.id + ")" + (v.proposal != null ? " -> " + v.proposal : ""));
 					List<String> votes = new ArrayList<>();
 					v.votes.forEach((target, n) -> votes.add((target == c.id ? "same" : String.valueOf(target)) + " x" + n));
-					details = String.join("; ", v.differences) + " | npc stand/walk votes: " + (votes.isEmpty() ? "none" : String.join(", ", votes));
+					details += " | npc stand/walk votes: " + (votes.isEmpty() ? "none" : String.join(", ", votes));
+				} else if (AnimMatcher.ABSENT.equals(v.status)) {
+					absent.add(c.name + "(" + c.id + ")");
 				}
-				out.println(String.format("%-22s  %6d  %-9s  %8s  %s", c.name, c.id, v.changed ? "changed" : "unchanged",
+				out.println(String.format("%-22s  %6d  %-9s  %8s  %s", c.name, c.id, v.status,
 					v.proposal == null ? "-" : v.proposal, details));
 			}
 			out.println();
 			out.println("changed: " + changed.size() + (changed.isEmpty() ? "" : "  " + String.join(", ", changed)));
+			if (!absent.isEmpty()) {
+				out.println("absent from both caches: " + String.join(", ", absent));
+			}
 			out.println("Edit AnimationID.java by hand for the proposals you accept; check each in-game.");
 		}
 		return CacheDiff.OK;

@@ -92,18 +92,21 @@ With `--out map.json` it also writes:
 - `map.json`: a flat `{ "oldId": newId, ... }` object with **only** the proposals. This is the input to
   `apply`.
 - `map.evidence.json` (next to it, `.json` replaced by `.evidence.json`): one entry per proposal with
-  `to`, `status`, `rule`, `votes`, `totalVotes`, `kits`, `npcUsersOld`, `npcUsersNew` and
-  `geometryMatches`. `apply` never reads it. It is there so the weaker proposals stay visible.
+  `to`, `status`, `rule`, `votes`, `totalVotes`, `kits`, `npcUsersOld`, `npcUsersNew`,
+  `geometryMatches`, `geometryDuplicates` and `note`. `apply` never reads it. It is there so the
+  weaker proposals and any caveats stay visible.
 
 ### `anims --old <cacheDir> --new <cacheDir> [--enum <AnimationID.java>]`
 
 `--enum` defaults to `src/main/java/com/magnaboy/AnimationID.java`. For every constant it prints
-`unchanged` or `changed`. For `changed` constants it also prints the differences (frame count, frame
-lengths, duration, skeleton, maya animation length), the votes, and a proposal if there is one.
+`unchanged`, `changed`, or `absent` (in neither cache). For `changed` constants it also prints the
+differences (frame count, frame lengths, duration, skeleton, maya animation length), the votes, and a
+proposal if there is one.
 
 - A proposal comes from NPCs that exist in both caches whose stand (or walk) animation was the old id.
-  Each such NPC votes for its new stand (or walk) animation. The top target is proposed when it is a
-  different id and holds more than half of the votes.
+  Each such NPC votes for its new stand (or walk) animation. An NPC that now has no animation (-1)
+  casts no vote. The top target is proposed when it is a different id and holds more than half of the
+  votes.
 - `changed` without a proposal usually means the animation was converted in place (NPCs still use the
   id), or no NPC uses it. Check those in-game.
 
@@ -134,12 +137,26 @@ Errors are a one-line message on stderr; `help` prints the usage. Under `gradle 
 | status | meaning | proposal |
 |---|---|---|
 | `identical` | Same geometry and face colours at the same id. Never remapped, whatever the other evidence says. | none |
-| `moved` | The old geometry now lives at exactly one other id, which did not already have it in the old cache: that id was absent there, or held a different model. An old model that cannot be decoded does not count. | that id (`geometry-move`) |
+| `moved` | The old geometry now lives at exactly one *fresh* other id: one that was absent from the old cache, or held a different (decodable) model there. See the details after this table. | that id (`geometry-move`) |
 | `replaced` | Evidence points to a new id (see the rules below). | that id |
-| `changed-in-place` | The model was remade under the same id: a player kit maps the id to itself, or more than half of the NPCs that used it keep it at the same position. | none (keep the id) |
+| `changed-in-place` | The model was remade under the same id: a player kit maps the id to itself, or more than half of the NPCs that used it keep it at the same position (NPCs are counted, not positions). | none (keep the id) |
 | `missing-in-new` | The id is gone from the new cache and nothing points to a replacement. | none: needs a manual fix |
 | `not-in-old` | The tool cannot judge this id: it is absent from the old cache, or the old model is **undecodable** (the evidence says which). Several models of the 2023 OpenRS2 cache cannot be decoded by RuneLite's cache library. | none: needs an in-game look |
 | `unresolved` | The id changed but the evidence is missing or contradictory: votes split, kits and votes disagree, ambiguous geometry, or NPCs changed their model lists so much that nothing can be compared. | none: needs a manual decision |
+
+The geometry-move rule in full:
+
+- The tool collects every new id, other than the old id itself, whose geometry and colours hash the same as the old model.
+- Ids that already carried that hash in the old cache, or whose old model is undecodable, are
+  **pre-existing duplicates**. They are not move targets.
+- If exactly one fresh id remains, that is the proposal. A model with identical geometry and colours
+  renders identically, so the citizen looks as it did.
+- The evidence names any pre-existing duplicates, e.g. `geometry also at 30 (already there in old cache
+  or undecodable there)`. It also notes when a kit or the top NPC vote points to a different id.
+- Two or more fresh ids give `unresolved`.
+
+A `replaced` proposal (any rule below) is only made when the target exists and decodes in the new cache.
+Otherwise the id is `unresolved`, and the note says the target is absent or undecodable.
 
 Rules for `replaced`, from strongest to weakest:
 

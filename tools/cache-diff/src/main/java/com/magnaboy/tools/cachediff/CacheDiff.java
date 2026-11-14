@@ -62,8 +62,13 @@ public final class CacheDiff {
 		} catch (GameCache.CacheException | MapFile.MapFileException | Json.ParseException e) {
 			err.println("cache-diff: " + e.getMessage());
 			return FAILED;
-		} catch (IOException | IllegalStateException e) {
+		} catch (IOException e) {
 			err.println("cache-diff: " + e);
+			return FAILED;
+		} catch (RuntimeException e) {
+			// Unexpected (odd cache, bad input the parsers did not anticipate): one line, no stack trace,
+			// with the exception class so a maintainer can report it.
+			err.println("cache-diff: " + e.getClass().getSimpleName() + ": " + e.getMessage());
 			return FAILED;
 		}
 	}

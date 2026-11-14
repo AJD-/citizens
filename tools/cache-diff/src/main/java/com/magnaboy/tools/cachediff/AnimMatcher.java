@@ -4,6 +4,7 @@ import com.magnaboy.tools.cachediff.CacheView.NpcInfo;
 import com.magnaboy.tools.cachediff.CacheView.SequenceInfo;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,17 +16,25 @@ import java.util.Map;
  * animation.
  */
 final class AnimMatcher {
+	static final String UNCHANGED = "unchanged";
+	static final String CHANGED = "changed";
+	static final String ABSENT = "absent";
+	private static final int NO_ANIMATION = -1;
+
 	static final class Verdict {
 		final int id;
+		/** {@link #UNCHANGED}, {@link #CHANGED}, or {@link #ABSENT} (in neither cache). */
+		final String status;
 		final boolean changed;
 		final List<String> differences;
 		final Integer proposal;
 		/** Target id to vote count, highest first. */
 		final Map<Integer, Integer> votes;
 
-		Verdict(int id, boolean changed, List<String> differences, Integer proposal, Map<Integer, Integer> votes) {
+		Verdict(int id, String status, List<String> differences, Integer proposal, Map<Integer, Integer> votes) {
 			this.id = id;
-			this.changed = changed;
+			this.status = status;
+			this.changed = CHANGED.equals(status);
 			this.differences = differences;
 			this.proposal = proposal;
 			this.votes = votes;
@@ -41,9 +50,14 @@ final class AnimMatcher {
 	}
 
 	Verdict compare(int id) {
-		List<String> diffs = differences(oldCache.sequence(id), newCache.sequence(id));
+		SequenceInfo before = oldCache.sequence(id);
+		SequenceInfo after = newCache.sequence(id);
+		if (before == null && after == null) {
+			return new Verdict(id, ABSENT, Collections.singletonList("absent from both caches"), null, new LinkedHashMap<>());
+		}
+		List<String> diffs = differences(before, after);
 		if (diffs.isEmpty()) {
-			return new Verdict(id, false, diffs, null, new LinkedHashMap<>());
+			return new Verdict(id, UNCHANGED, diffs, null, new LinkedHashMap<>());
 		}
 		Map<Integer, Integer> votes = votes(id);
 		Integer proposal = null;
@@ -54,15 +68,14 @@ final class AnimMatcher {
 				proposal = top;
 			}
 		}
-		return new Verdict(id, true, diffs, proposal, votes);
+		return new Verdict(id, CHANGED, diffs, proposal, votes);
 	}
 
+	/** Differences between two sequences; at most one of them may be null. */
 	static List<String> differences(SequenceInfo a, SequenceInfo b) {
 		List<String> out = new ArrayList<>();
 		if (a == null || b == null) {
-			if (a != b) {
-				out.add(a == null ? "absent from old cache" : "absent from new cache");
-			}
+			out.add(a == null ? "absent from old cache" : "absent from new cache");
 			return out;
 		}
 		if (a.frameLengths.length != b.frameLengths.length) {
@@ -84,7 +97,10 @@ final class AnimMatcher {
 		return out;
 	}
 
-	/** NPCs in both caches whose stand (walk) animation was {@code id} vote for their new stand (walk) animation. */
+	/**
+	 * NPCs in both caches whose stand (walk) animation was {@code id} vote for their new stand (walk)
+	 * animation. An NPC that now has no animation (-1) casts no vote.
+	 */
 	private Map<Integer, Integer> votes(int id) {
 		Map<Integer, Integer> raw = new HashMap<>();
 		Map<Integer, NpcInfo> newNpcs = newCache.npcs();
@@ -93,10 +109,10 @@ final class AnimMatcher {
 			if (now == null) {
 				continue;
 			}
-			if (e.getValue().standAnimation == id) {
+			if (e.getValue().standAnimation == id && now.standAnimation != NO_ANIMATION) {
 				raw.merge(now.standAnimation, 1, Integer::sum);
 			}
-			if (e.getValue().walkAnimation == id) {
+			if (e.getValue().walkAnimation == id && now.walkAnimation != NO_ANIMATION) {
 				raw.merge(now.walkAnimation, 1, Integer::sum);
 			}
 		}

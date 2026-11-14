@@ -38,6 +38,28 @@ public class AnimMatcherTest {
 	}
 
 	@Test
+	public void npcsThatLostTheirAnimationCastNoVote() {
+		oldCache.sequence(195, 319, 21, 21);
+		newCache.sequence(195, 0, 4, 4, 8);
+		for (int i = 0; i < 5; i++) {
+			oldCache.animatedNpc(i, 195, -1);
+			newCache.animatedNpc(i, -1, -1);
+		}
+		AnimMatcher.Verdict v = new AnimMatcher(oldCache, newCache).compare(195);
+		assertTrue(v.changed);
+		assertNull(v.proposal);
+		assertFalse(v.votes.containsKey(-1));
+	}
+
+	@Test
+	public void anIdInNeitherCacheIsAbsentNotUnchanged() {
+		AnimMatcher.Verdict v = new AnimMatcher(oldCache, newCache).compare(4242);
+		assertEquals(AnimMatcher.ABSENT, v.status);
+		assertFalse(v.changed);
+		assertEquals("absent from both caches", v.differences.get(0));
+	}
+
+	@Test
 	public void changedSequenceStillUsedByNpcsHasNoProposal() {
 		oldCache.sequence(6484, 319, 15, 15);
 		newCache.sequence(6484, 2402, 15, 15);
