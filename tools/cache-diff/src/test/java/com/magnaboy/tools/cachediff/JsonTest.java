@@ -11,7 +11,7 @@ import org.junit.Test;
 public class JsonTest {
 	@Test
 	public void recordsTheSourceOffsetsOfValues() throws Exception {
-		String text = "﻿{ \"a\" : [ 12, -3 ,4.5 ], \"b\": \"x\\\"y\" }";
+		String text = "\uFEFF{ \"a\" : [ 12, -3 ,4.5 ], \"b\": \"x\\\"y\" }";
 		Json.Obj root = (Json.Obj) Json.parse(text);
 		assertEquals(1, root.start);
 		assertEquals(text.length(), root.end);

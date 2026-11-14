@@ -177,7 +177,7 @@ final class Json {
 		void skipWhitespace() {
 			while (pos < s.length()) {
 				char c = s.charAt(pos);
-				if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '﻿') {
+				if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\uFEFF') {
 					pos++;
 				} else {
 					break;
