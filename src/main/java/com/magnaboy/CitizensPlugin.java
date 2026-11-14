@@ -3,13 +3,11 @@ package com.magnaboy;
 import com.google.gson.Gson;
 import com.google.inject.Binder;
 import com.google.inject.Module;
-import com.google.inject.Provides;
 import com.google.inject.util.Providers;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
 import javax.inject.Inject;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -21,7 +19,6 @@ import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuOpened;
-import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.WorldViewLoaded;
 import net.runelite.api.events.WorldViewUnloaded;
 import net.runelite.api.geometry.SimplePolygon;
@@ -30,7 +27,6 @@ import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
-import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -50,9 +46,6 @@ public class CitizensPlugin extends Plugin {
 	@Inject
 	ChatMessageManager chatMessageManager;
 	@Inject
-	@Getter
-	private CitizensConfig config;
-	@Inject
 	private OverlayManager overlayManager;
 	@Inject
 	private CitizensOverlay citizensOverlay;
@@ -66,11 +59,6 @@ public class CitizensPlugin extends Plugin {
 	 * Game ticks seen since the plugin was created; the clock for the wander cooldown.
 	 */
 	private int gameTick;
-
-	@Provides
-	CitizensConfig getConfig(ConfigManager configManager) {
-		return configManager.getConfig(CitizensConfig.class);
-	}
 
 	@Override
 	public void configure(Binder binder) {
@@ -240,7 +228,8 @@ public class CitizensPlugin extends Plugin {
 	public void onMenuOpened(MenuOpened ignored) {
 		Point mousePos = client.getMouseCanvasPosition();
 		registry.forEachActiveEntity(entity -> {
-			if (entity.entityType == EntityType.Scenery || entity.name == null || entity.examine == null) {
+			if (!entity.isActive() || entity.entityType == EntityType.Scenery || entity.name == null
+				|| entity.examine == null) {
 				return;
 			}
 			SimplePolygon clickbox;
@@ -253,34 +242,29 @@ public class CitizensPlugin extends Plugin {
 				return;
 			}
 			if (clickbox.contains(mousePos.getX(), mousePos.getY())) {
-				client.createMenuEntry(1)
+				client.getMenu().createMenuEntry(1)
 					.setOption("Examine")
 					.setTarget("<col=fffe00>" + entity.name + "</col>")
 					.setType(MenuAction.RUNELITE)
 					.setParam0(0)
 					.setParam1(0)
-					.setDeprioritized(true);
+					.setDeprioritized(true)
+					.onClick(e -> examine(entity));
 			}
 		});
 	}
 
-	@Subscribe
-	private void onMenuOptionClicked(MenuOptionClicked event) {
-		if (!event.getMenuOption().equals("Examine")) {
-			return;
-		}
-		registry.forEachActiveEntity((entity) -> {
-			if (event.getMenuTarget().equals("<col=fffe00>" + entity.name + "</col>")) {
-				event.consume();
-				String chatMessage = new ChatMessageBuilder()
-					.append(ChatColorType.NORMAL)
-					.append(entity.examine)
-					.build();
+	/**
+	 * Client thread only (menu clicks run there). Posts the entity's examine text to the chat box.
+	 */
+	private void examine(Entity entity) {
+		String chatMessage = new ChatMessageBuilder()
+			.append(ChatColorType.NORMAL)
+			.append(entity.examine)
+			.build();
 
-				chatMessageManager.queue(QueuedMessage.builder().type(ChatMessageType.NPC_EXAMINE)
-					.runeLiteFormattedMessage(chatMessage)
-					.timestamp((int) (System.currentTimeMillis() / 1000)).build());
-			}
-		});
+		chatMessageManager.queue(QueuedMessage.builder().type(ChatMessageType.NPC_EXAMINE)
+			.runeLiteFormattedMessage(chatMessage)
+			.timestamp((int) (System.currentTimeMillis() / 1000)).build());
 	}
 }

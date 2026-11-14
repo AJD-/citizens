@@ -9,7 +9,6 @@ import com.google.inject.util.Providers;
 import net.runelite.api.Client;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatMessageManager;
-import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginManager;
 import net.runelite.client.ui.ClientToolbar;
@@ -20,7 +19,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * Builds the injectors the way {@code PluginManager.instantiate} does (client 1.13.6): each plugin gets a child of the
@@ -32,15 +30,11 @@ public class CitizensPublicModuleTest {
 
 	@Before
 	public void setUp() {
-		ConfigManager configManager = mock(ConfigManager.class);
-		when(configManager.getConfig(CitizensConfig.class)).thenReturn(mock(CitizensConfig.class));
-
 		runelite = Guice.createInjector(binder -> {
 			// A new mock on every injection, so that injecting a plugin's fields a second time would show
 			binder.bind(Client.class).toProvider((Provider<Client>) () -> mock(Client.class));
 			binder.bind(ClientThread.class).toProvider(Providers.of(mock(ClientThread.class)));
 			binder.bind(Gson.class).toProvider(Providers.of(RuneLiteAPI.GSON));
-			binder.bind(ConfigManager.class).toProvider(Providers.of(configManager));
 			binder.bind(ChatMessageManager.class).toProvider(Providers.of(mock(ChatMessageManager.class)));
 			binder.bind(OverlayManager.class).toProvider(Providers.of(mock(OverlayManager.class)));
 			binder.bind(ModelOutlineRenderer.class).toProvider(Providers.of(mock(ModelOutlineRenderer.class)));
