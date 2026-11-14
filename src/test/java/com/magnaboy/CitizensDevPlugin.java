@@ -225,7 +225,10 @@ public class CitizensDevPlugin extends Plugin {
 			publishStatus(false);
 		} else {
 			selectedEntity = entity;
-			selectedPosition = entity.getWorldLocation();
+			// The stored location, not where the citizen is now: an untouched Update must not move it
+			EntityInfo stored = registry.getEntityInfo(entity.regionId, entity.uuid);
+			selectedPosition = stored != null && stored.worldLocation != null
+				? stored.worldLocation : entity.getWorldLocation();
 			publishStatus(true);
 		}
 	}
@@ -275,7 +278,11 @@ public class CitizensDevPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * Only a successful spawn or update refills the panel's form, so a refused one leaves the contributor's input.
+	 */
 	private void applySpawn(EntityInfo info) {
+		boolean spawned = false;
 		if (isCitizensRunning("spawn")) {
 			try {
 				CitizenRegion region = registry.loadRegion(info.regionId);
@@ -287,31 +294,37 @@ public class CitizensDevPlugin extends Plugin {
 				registry.updateAllEntities();
 				selectedEntity = entity;
 				selectedPosition = null;
+				spawned = true;
 			} catch (RuntimeException e) {
 				log.warn("Could not spawn {} at {}", info.entityType, info.worldLocation, e);
 			}
 		}
-		publishStatus(true);
+		publishStatus(spawned);
 	}
 
 	private void applyUpdate(EntityInfo info) {
+		boolean updated = false;
 		if (isCitizensRunning("update")) {
 			EntityInfo stored = registry.getEntityInfo(info.regionId, info.uuid);
 			if (stored == null) {
 				log.warn("Could not update {}: it is no longer loaded", info.uuid);
+			} else if (info.worldLocation == null || info.worldLocation.getRegionID() != info.regionId) {
+				// An entry must stay in the file of the region it stands in
+				log.warn("Could not update {}: {} is outside its region {}; delete it and spawn it there instead",
+					info.uuid, info.worldLocation, info.regionId);
 			} else {
 				keepFieldsTheFormDoesNotEdit(stored, info);
 				try {
-					Entity updated = registry.updateEntity(info);
+					selectedEntity = registry.updateEntity(info);
 					markDirty(registry.getRegion(info.regionId));
 					registry.updateAllEntities();
-					selectedEntity = updated;
+					updated = true;
 				} catch (RuntimeException e) {
 					log.warn("Could not update {}", info.uuid, e);
 				}
 			}
 		}
-		publishStatus(true);
+		publishStatus(updated);
 	}
 
 	/**

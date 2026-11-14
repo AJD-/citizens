@@ -46,6 +46,8 @@ public class CitizensPublicModuleTest {
 			binder.bind(ModelOutlineRenderer.class).toProvider(Providers.of(mock(ModelOutlineRenderer.class)));
 			binder.bind(ClientToolbar.class).toProvider(Providers.of(mock(ClientToolbar.class)));
 			binder.bind(PluginManager.class).toProvider(Providers.of(mock(PluginManager.class)));
+			// Not the real overlay: its font field would start FontManager, which needs fonts from the system
+			binder.bind(CitizensOverlay.class).toProvider(Providers.of(mock(CitizensOverlay.class)));
 		});
 	}
 
