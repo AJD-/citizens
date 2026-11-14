@@ -1,8 +1,88 @@
 # Citizens
 
-> This plugin currently doesn't work because an update to OSRS broke it, and I don't know how to fix it. If you are interested in helping, you can find me (Magnaboy) in the runelite discord.
-
 This plugin adds 'fake npcs' (citizens) to RuneScape to bring more life and action to the world.
+
+# Status
+
+The plugin was marked unavailable on the Plugin Hub in September 2024. A game update in August 2024 had changed model ids, and citizens no longer
+looked right. This fork repaired the region data against the game caches and brought the code up to current RuneLite APIs and Plugin Hub rules.
+The original plugin is by Magnaboy. The original repository is
+[gc/citizens](https://github.com/gc/citizens).
+
+# What it does for players
+
+Citizens appear in a few towns. They wander around, say things now and then, and some follow small routines. Right-click a citizen and choose
+Examine to read its examine text. Nothing else about a citizen is clickable, and citizens do not affect gameplay.
+
+Two bundled entries hide a real scenery object, so that a citizen can stand in its place.
+
+# Building and running
+
+You need JDK 11.
+
+```
+./gradlew build
+```
+
+This compiles the plugin, runs checkstyle and runs the tests.
+
+```
+./gradlew run
+```
+
+This starts a RuneLite development client with the plugin loaded. Like any client, it needs a Jagex account login. See
+[Using Jagex Accounts](https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts) in RuneLite's wiki.
+
+# Project layout
+
+- `src/main/java`: the plugin that ships.
+- `src/main/resources/RegionData/<regionId>.json`: one file per map region, listing its citizens and scenery.
+- `src/main/resources/Scripts/*.json`: the routines used by scripted citizens.
+- `src/test/java`: the tests and the dev editor.
+- `tools/cache-diff`: a maintainer tool for repairing ids after a game update.
+
+# Adding or editing citizens (dev editor)
+
+The editor is a second plugin, "Citizens Dev Editor". It lives under `src/test`, so it exists only in the development client
+(`./gradlew run`) and is not part of the plugin that ships. It is off by default.
+
+1. Start the development client, find "Citizens Dev Editor" in the plugin list and turn it on. A "Citizens" button appears in the side bar.
+   The Citizens plugin itself must also be on.
+2. Walk to the place you want. Right-click a tile and choose the "Citizen Editor" entry for the tile ("Select Tile"). The panel shows the
+   selected position.
+3. Fill in the form in the panel (type, name, examine text, model ids, animations and so on). Press "Spawn Entity" to add a citizen or scenery
+   object on the selected tile. A wandering citizen also needs a wander area: select two tiles in turn and use the "Select BL" and "Select TR"
+   buttons. The tile must be in a region loaded around you.
+4. To change something that exists, right-click it and choose its "Citizen Editor" entry ("Select ..."). The panel shows "Editing: ..." and
+   fills the form. Change the form and press "Update Entity", or press "Delete Entity". To move an entity, select another tile before you press Update. It must stay within
+   its region.
+5. Press "Save Changes". This writes every edited region to its file under `src/main/resources/RegionData`. The panel shows how many regions have
+   unsaved changes.
+
+Edits stay in the client until you save them, even if you walk out of the region. A saved change shows after the client is restarted.
+
+Two things to know:
+
+- Save rewrites the whole region file with the editor's own formatting, so review the diff before you commit.
+- The Reload button ("Reload All Entities") discards unsaved edits.
+
+Fields the form has no control for (scripts, hidden objects, merged objects) are kept as they are when you update an entity. To change a
+script, edit its JSON file by hand.
+
+# Data checks
+
+```
+./gradlew test
+```
+
+The tests load every region and script file and check them: ids, enum names, wander boxes, and that every referenced script exists.
+`./gradlew build` runs them too. When a check fails, read the message. It names the file and the entity.
+
+# When a game update breaks models or animations
+
+After a game update, citizens may have the wrong or missing body parts, or broken animations. The `tools/cache-diff` tool compares an old and a new
+game cache and proposes replacement ids. It can update the region files for you. Its proposals are evidence, not proof, so check the result in
+game. See [tools/cache-diff/README.md](tools/cache-diff/README.md).
 
 # Guidelines For Adding Citizens
 
@@ -21,6 +101,10 @@ This plugin adds 'fake npcs' (citizens) to RuneScape to bring more life and acti
 - Stationary Citizens; any citizen which does not ever move tiles.
 - Wandering Citizens; a citizen which wanders randomly around a defined box area.
 - Scripted Citizens; a citizen which has a set script to follow on a loop (e.g. walk here, do something, walk back)
+
+# Licence
+
+BSD 2-Clause. See `LICENSE`.
 
 # Thanks
 
