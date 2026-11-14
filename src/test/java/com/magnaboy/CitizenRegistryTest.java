@@ -1,5 +1,9 @@
 package com.magnaboy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.magnaboy.serialization.CitizenInfo;
@@ -30,6 +34,7 @@ import net.runelite.http.api.RuneLiteAPI;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.slf4j.LoggerFactory;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,6 +48,39 @@ public class CitizenRegistryTest {
 
 	private CitizensPlugin plugin;
 	private CitizenRegistry registry;
+
+	/**
+	 * Collects what the registry logs, instead of printing it, until closed. Turns off additivity for the duration
+	 * and restores it afterwards.
+	 */
+	private static final class LogCapture implements AutoCloseable {
+		private final Logger logger = (Logger) LoggerFactory.getLogger(CitizenRegistry.class);
+		private final boolean additive = logger.isAdditive();
+		private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		LogCapture() {
+			appender.start();
+			logger.addAppender(appender);
+			logger.setAdditive(false);
+		}
+
+		/**
+		 * Asserts that exactly one WARN event was logged, with a message that starts with {@code messageStart}.
+		 */
+		void assertOneWarning(String messageStart) {
+			Assert.assertEquals(1, appender.list.size());
+			ILoggingEvent event = appender.list.get(0);
+			Assert.assertEquals(Level.WARN, event.getLevel());
+			Assert.assertTrue(event.getFormattedMessage(), event.getFormattedMessage().startsWith(messageStart));
+		}
+
+		@Override
+		public void close() {
+			logger.detachAppender(appender);
+			appender.stop();
+			logger.setAdditive(additive);
+		}
+	}
 
 	@Before
 	public void setUp() {
@@ -374,16 +412,19 @@ public class CitizenRegistryTest {
 		};
 		Set<Integer> loaded = ids(broken, healthy);
 
-		registry.syncRegions(loaded);
+		try (LogCapture log = new LogCapture()) {
+			registry.syncRegions(loaded);
 
-		Assert.assertNull(registry.getRegion(broken));
-		Assert.assertNotNull(registry.getRegion(healthy));
-		Assert.assertTrue(registry.isSyncedWith(loaded));
-		Assert.assertEquals(1, brokenAttempts.get());
+			Assert.assertNull(registry.getRegion(broken));
+			Assert.assertNotNull(registry.getRegion(healthy));
+			Assert.assertTrue(registry.isSyncedWith(loaded));
+			Assert.assertEquals(1, brokenAttempts.get());
 
-		// Not retried while it stays in the loaded map
-		registry.syncRegions(loaded);
-		Assert.assertEquals(1, brokenAttempts.get());
+			// Not retried while it stays in the loaded map
+			registry.syncRegions(loaded);
+			Assert.assertEquals(1, brokenAttempts.get());
+			log.assertOneWarning("Failed to load region");
+		}
 	}
 
 	@Test
@@ -391,10 +432,13 @@ public class CitizenRegistryTest {
 		AtomicInteger despawned = new AtomicInteger();
 		addFailingAndCountingEntities(despawned);
 
-		registry.cleanUp();
+		try (LogCapture log = new LogCapture()) {
+			registry.cleanUp();
 
-		Assert.assertEquals(1, despawned.get());
-		Assert.assertTrue(registry.isEmpty());
+			Assert.assertEquals(1, despawned.get());
+			Assert.assertTrue(registry.isEmpty());
+			log.assertOneWarning("Failed to despawn");
+		}
 	}
 
 	@Test
@@ -402,10 +446,13 @@ public class CitizenRegistryTest {
 		AtomicInteger despawned = new AtomicInteger();
 		addFailingAndCountingEntities(despawned);
 
-		registry.syncRegions(Collections.emptySet());
+		try (LogCapture log = new LogCapture()) {
+			registry.syncRegions(Collections.emptySet());
 
-		Assert.assertEquals(1, despawned.get());
-		Assert.assertTrue(registry.isEmpty());
+			Assert.assertEquals(1, despawned.get());
+			Assert.assertTrue(registry.isEmpty());
+			log.assertOneWarning("Failed to despawn");
+		}
 	}
 
 	private void addFailingAndCountingEntities(AtomicInteger despawned) throws IOException {
