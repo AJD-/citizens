@@ -11,11 +11,14 @@ import net.runelite.api.coords.WorldPoint;
  */
 @Value
 class EditorSnapshot {
-	static final EditorSnapshot EMPTY = new EditorSnapshot(GameState.UNKNOWN, 0, 0, 0, null, null, null, false);
+	static final EditorSnapshot EMPTY = new EditorSnapshot(GameState.UNKNOWN, 0, 0, 0, null, null, null, false, null);
 
 	GameState gameState;
 	int activeEntities;
 	int totalEntities;
+	/**
+	 * How many regions have unsaved changes, loaded or not.
+	 */
 	int dirtyRegions;
 	/**
 	 * The selected tile, or null.
@@ -33,4 +36,8 @@ class EditorSnapshot {
 	 * Whether a different entity was selected, so the form should be filled from {@link #selectedInfo}.
 	 */
 	boolean selectionChanged;
+	/**
+	 * The outcome of the last editor action (a refusal, a failure or what was saved), or null.
+	 */
+	String message;
 }

@@ -5,11 +5,9 @@ import com.magnaboy.serialization.CitizenInfo;
 import com.magnaboy.serialization.EntityInfo;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
@@ -43,7 +41,7 @@ import net.runelite.client.util.ImageUtil;
  * Editor" menu entries to select entities and tiles, and a debug overlay. It lives in {@code src/test}, so
  * {@code ./gradlew run} loads it but the Plugin Hub never builds it. It is off by default.
  * <p>
- * Threads: the selection and the dirty regions belong to the client thread, like the registry they point into. Panel
+ * Threads: the selection and the edited regions belong to the client thread, like the registry they point into. Panel
  * listeners run on the Swing EDT and hand plain values to the client thread with {@code clientThread.invoke}; the
  * client thread hands the panel an {@link EditorSnapshot} with {@link SwingUtilities#invokeLater(Runnable)}.
  */
@@ -87,10 +85,11 @@ public class CitizensDevPlugin extends Plugin {
 	// Client thread only
 	private Entity selectedEntity;
 	private WorldPoint selectedPosition;
+	private final EditedRegions edits = new EditedRegions();
 	/**
-	 * Regions with unsaved edits, by id. An entry is dropped once the registry no longer holds that region object.
+	 * The outcome of the last editor action that the panel should show, or null.
 	 */
-	private final Map<Integer, CitizenRegion> dirtyRegions = new HashMap<>();
+	private String message;
 	private int gameTicks;
 
 	@Override
@@ -143,6 +142,7 @@ public class CitizensDevPlugin extends Plugin {
 
 	@Subscribe
 	public void onGameTick(GameTick tick) {
+		installEditedVersions();
 		if (++gameTicks % PANEL_REFRESH_TICKS == 0) {
 			publishStatus(false);
 		}
@@ -152,6 +152,7 @@ public class CitizensDevPlugin extends Plugin {
 	public void onGameStateChanged(GameStateChanged event) {
 		// Queued so that it runs after the Citizens plugin has loaded or unloaded regions for this state
 		clientThread.invokeLater(() -> {
+			installEditedVersions();
 			publishStatus(false);
 		});
 	}
@@ -261,7 +262,8 @@ public class CitizensDevPlugin extends Plugin {
 	}
 
 	/**
-	 * Writes every region with unsaved edits to {@code src/main/resources/RegionData}.
+	 * Writes every region with unsaved edits to {@code src/main/resources/RegionData}. Works in any state, also while
+	 * logged out or while the Citizens plugin is off.
 	 */
 	void saveChanges() {
 		clientThread.invoke(() -> {
@@ -270,7 +272,8 @@ public class CitizensDevPlugin extends Plugin {
 	}
 
 	/**
-	 * Discards every unsaved edit and reloads all entities from the bundled region data.
+	 * Discards every unsaved edit and reloads all entities: from the bundled region data, or for a region saved this
+	 * session from what was saved.
 	 */
 	void reloadEntities() {
 		clientThread.invoke(() -> {
@@ -284,19 +287,28 @@ public class CitizensDevPlugin extends Plugin {
 	private void applySpawn(EntityInfo info) {
 		boolean spawned = false;
 		if (isCitizensRunning("spawn")) {
-			try {
-				CitizenRegion region = registry.loadRegion(info.regionId);
-				if (region == null) {
-					region = registry.createRegion(info.regionId);
+			if (!sceneRegionIds().contains(info.regionId)) {
+				// A region outside the scene would be unloaded again by the next region sync
+				refuse("Cannot spawn: the selected tile is in region " + info.regionId
+					+ ", which is not loaded around you. Select a tile nearby.");
+			} else {
+				try {
+					installEditedVersions();
+					CitizenRegion region = registry.loadRegion(info.regionId);
+					if (region == null) {
+						region = registry.createRegion(info.regionId);
+					}
+					Entity entity = registry.addEntity(info);
+					edits.recordEdit(region);
+					registry.updateAllEntities();
+					selectedEntity = entity;
+					selectedPosition = null;
+					message = null;
+					spawned = true;
+				} catch (RuntimeException e) {
+					log.warn("Could not spawn {} at {}", info.entityType, info.worldLocation, e);
+					message = "Could not spawn: " + e.getMessage();
 				}
-				Entity entity = registry.addEntity(info);
-				markDirty(region);
-				registry.updateAllEntities();
-				selectedEntity = entity;
-				selectedPosition = null;
-				spawned = true;
-			} catch (RuntimeException e) {
-				log.warn("Could not spawn {} at {}", info.entityType, info.worldLocation, e);
 			}
 		}
 		publishStatus(spawned);
@@ -305,22 +317,25 @@ public class CitizensDevPlugin extends Plugin {
 	private void applyUpdate(EntityInfo info) {
 		boolean updated = false;
 		if (isCitizensRunning("update")) {
+			installEditedVersions();
 			EntityInfo stored = registry.getEntityInfo(info.regionId, info.uuid);
 			if (stored == null) {
-				log.warn("Could not update {}: it is no longer loaded", info.uuid);
+				refuse("Cannot update: the entity is no longer loaded.");
 			} else if (info.worldLocation == null || info.worldLocation.getRegionID() != info.regionId) {
 				// An entry must stay in the file of the region it stands in
-				log.warn("Could not update {}: {} is outside its region {}; delete it and spawn it there instead",
-					info.uuid, info.worldLocation, info.regionId);
+				refuse("Cannot update: the selected tile is outside the entity's region " + info.regionId
+					+ ". Delete it and spawn it there instead.");
 			} else {
 				keepFieldsTheFormDoesNotEdit(stored, info);
 				try {
 					selectedEntity = registry.updateEntity(info);
-					markDirty(registry.getRegion(info.regionId));
+					edits.recordEdit(registry.getRegion(info.regionId));
 					registry.updateAllEntities();
+					message = null;
 					updated = true;
 				} catch (RuntimeException e) {
 					log.warn("Could not update {}", info.uuid, e);
+					message = "Could not update: " + e.getMessage();
 				}
 			}
 		}
@@ -339,13 +354,17 @@ public class CitizensDevPlugin extends Plugin {
 	}
 
 	private void applyDelete(int regionId, UUID uuid) {
-		CitizenRegion region = registry.getRegion(regionId);
-		Entity entity = region == null ? null : region.entities.get(uuid);
-		if (entity == null) {
-			log.warn("Could not delete {}: it is no longer loaded", uuid);
-		} else {
-			registry.removeEntity(entity);
-			markDirty(region);
+		if (isCitizensRunning("delete")) {
+			installEditedVersions();
+			CitizenRegion region = registry.getRegion(regionId);
+			Entity entity = region == null ? null : region.entities.get(uuid);
+			if (entity == null) {
+				refuse("Cannot delete: the entity is no longer loaded.");
+			} else {
+				registry.removeEntity(entity);
+				edits.recordEdit(region);
+				message = null;
+			}
 		}
 		if (selectedEntity != null && uuid.equals(selectedEntity.uuid)) {
 			selectedEntity = null;
@@ -354,27 +373,27 @@ public class CitizensDevPlugin extends Plugin {
 	}
 
 	private void applySave() {
-		pruneDirtyRegions();
-		Iterator<CitizenRegion> regions = dirtyRegions.values().iterator();
-		while (regions.hasNext()) {
-			CitizenRegion region = regions.next();
-			try {
-				Path file = regionFileWriter.write(region);
-				log.debug("Saved region {} to {}", region.regionId, file);
-				regions.remove();
-			} catch (IOException e) {
-				log.warn("Could not save region {}", region.regionId, e);
-			}
+		int pending = edits.unsavedCount();
+		List<Integer> failed = edits.saveAll(regionFileWriter);
+		if (!failed.isEmpty()) {
+			message = "Could not save region(s) " + failed + "; they still have unsaved changes. See the log.";
+		} else if (pending > 0) {
+			message = "Saved " + pending + " region(s) to " + RegionFileWriter.REGION_DATA_DIRECTORY + ".";
+		} else {
+			message = "Nothing to save.";
 		}
 		publishStatus(false);
 	}
 
 	private void applyReload() {
-		selectedEntity = null;
-		dirtyRegions.clear();
 		if (isCitizensRunning("reload")) {
+			selectedEntity = null;
+			selectedPosition = null;
+			edits.discardUnsaved();
 			registry.cleanUp();
 			plugin.reconcile();
+			installEditedVersions();
+			message = null;
 		}
 		publishStatus(false);
 	}
@@ -382,30 +401,59 @@ public class CitizensDevPlugin extends Plugin {
 	private boolean isCitizensRunning(String action) {
 		boolean running = pluginManager.isPluginActive(plugin);
 		if (!running) {
-			log.warn("Cannot {} while the Citizens plugin is off", action);
+			refuse("Cannot " + action + " while the Citizens plugin is off.");
 		}
 		return running;
 	}
 
-	private void markDirty(CitizenRegion region) {
-		if (region != null) {
-			dirtyRegions.put(region.regionId, region);
-		}
+	private void refuse(String reason) {
+		log.warn(reason);
+		message = reason;
 	}
 
 	/**
-	 * Drops the dirty regions the registry no longer holds: they were unloaded (the player left them, or the Citizens
-	 * plugin was turned off and emptied their rosters), so saving them could overwrite real data.
+	 * The region ids loaded around the player, as the Citizens plugin syncs them: none in an instance, and none unless
+	 * logged in with a top-level world view.
 	 */
-	private void pruneDirtyRegions() {
-		dirtyRegions.entrySet().removeIf(entry -> {
-			boolean unloaded = registry.getRegion(entry.getKey()) != entry.getValue();
-			if (unloaded) {
-				log.warn("Discarded the unsaved changes to region {}: it was unloaded before they were saved",
-					entry.getKey());
+	private Set<Integer> sceneRegionIds() {
+		Set<Integer> ids = new HashSet<>();
+		WorldView wv = client.getTopLevelWorldView();
+		if (client.getGameState() != GameState.LOGGED_IN || wv == null || wv.isInstance()) {
+			return ids;
+		}
+		int[] mapRegions = wv.getMapRegions();
+		if (mapRegions != null) {
+			for (int regionId : mapRegions) {
+				ids.add(regionId);
 			}
-			return unloaded;
-		});
+		}
+		return ids;
+	}
+
+	/**
+	 * Client thread only. Makes every edited region that is loaded around the player show the editor's version, also
+	 * when the registry loaded it again from the bundled data or does not hold it (a region created by the editor has
+	 * no data file). Does nothing while the Citizens plugin is off.
+	 */
+	private void installEditedVersions() {
+		if (!pluginManager.isPluginActive(plugin)) {
+			return;
+		}
+		Set<Integer> scene = sceneRegionIds();
+		boolean changed = false;
+		for (int regionId : edits.regionIds()) {
+			if (!scene.contains(regionId)) {
+				continue;
+			}
+			CitizenRegion region = registry.getRegion(regionId);
+			if (region == null) {
+				region = registry.createRegion(regionId);
+			}
+			changed |= edits.installInto(registry, region);
+		}
+		if (changed) {
+			registry.updateAllEntities();
+		}
 	}
 
 	/**
@@ -437,7 +485,6 @@ public class CitizensDevPlugin extends Plugin {
 			selectedLabel = selectedEntity instanceof Citizen ? selectedEntity.name : "Scenery Object";
 		}
 
-		pruneDirtyRegions();
 		int[] counts = new int[2];
 		registry.forEachEntity(entity -> {
 			counts[1]++;
@@ -446,8 +493,8 @@ public class CitizensDevPlugin extends Plugin {
 			}
 		});
 
-		EditorSnapshot snapshot = new EditorSnapshot(gameState, counts[0], counts[1], dirtyRegions.size(),
-			selectedPosition, selectedLabel, selectedInfo, selectionChanged);
+		EditorSnapshot snapshot = new EditorSnapshot(gameState, counts[0], counts[1], edits.unsavedCount(),
+			selectedPosition, selectedLabel, selectedInfo, selectionChanged, message);
 		SwingUtilities.invokeLater(() -> {
 			if (panel != null) {
 				panel.apply(snapshot);

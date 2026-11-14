@@ -43,6 +43,7 @@ class CitizenPanel extends PluginPanel {
 	public JButton updateButton;
 	public JButton deleteButton;
 	public JLabel reloadWarning;
+	private JLabel messageLabel;
 	public JCheckBox manualFieldsToggle;
 	private CitizensDevPlugin devPlugin;
 	private EditorSnapshot snapshot = EditorSnapshot.EMPTY;
@@ -136,7 +137,17 @@ class CitizenPanel extends PluginPanel {
 		editingTargetLabel.setVisible(hasSelection);
 		deleteButton.setVisible(hasSelection);
 
-		reloadWarning.setVisible(dirtySize > 0);
+		// Always shown: the count covers regions that are not loaded around the player too
+		reloadWarning.setText(dirtySize == 0 ? "No unsaved changes"
+			: dirtySize + (dirtySize == 1 ? " region has" : " regions have") + " unsaved changes");
+		reloadWarning.setForeground(dirtySize == 0 ? Color.WHITE : Color.ORANGE);
+		reloadWarning.setVisible(true);
+		reloadButton.setToolTipText(dirtySize == 0 ? null : "Unsaved Changes Will Be Lost");
+
+		String message = snapshot.getMessage();
+		messageLabel.setText(message == null ? "" : "<html><div style='text-align:center'>"
+			+ message.replace("&", "&amp;").replace("<", "&lt;") + "</div></html>");
+		messageLabel.setVisible(message != null);
 
 		selectWanderBL.setText(wanderRegionBL == null ? "Select BL" : Util.worldPointToShortCoord(wanderRegionBL));
 		selectWanderTR.setText(wanderRegionTR == null ? "Select TR" : Util.worldPointToShortCoord(wanderRegionTR));
@@ -218,6 +229,13 @@ class CitizenPanel extends PluginPanel {
 			reloadWarning.setHorizontalAlignment(SwingConstants.CENTER);
 			reloadWarning.setVisible(false);
 			layoutPanel.add(reloadWarning, gbc);
+
+			gbc.gridy++;
+			messageLabel = new JLabel();
+			messageLabel.setFont(FontManager.getRunescapeSmallFont());
+			messageLabel.setHorizontalAlignment(SwingConstants.CENTER);
+			messageLabel.setVisible(false);
+			layoutPanel.add(messageLabel, gbc);
 
 		}
 

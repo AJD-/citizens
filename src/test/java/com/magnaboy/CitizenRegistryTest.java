@@ -573,4 +573,44 @@ public class CitizenRegistryTest {
 		CitizenRegion loaded = registry.loadRegion(regionIds().get(0));
 		Assert.assertSame(loaded, registry.createRegion(loaded.regionId));
 	}
+
+	@Test
+	public void replaceRegionContentsRebuildsTheRegion() throws IOException {
+		CitizenRegion region = regionForEditing();
+		AtomicInteger despawned = new AtomicInteger();
+		Scenery counting = new Scenery(plugin) {
+			@Override
+			public boolean despawn() {
+				despawned.incrementAndGet();
+				return super.despawn();
+			}
+		};
+		counting.setUUID(UUID.randomUUID()).setRegion(region.regionId);
+		region.entities.put(counting.uuid, counting);
+		List<CitizenInfo> citizens = new ArrayList<>(region.citizenRoster.subList(0, 1));
+		List<SceneryInfo> scenery = new ArrayList<>(region.sceneryRoster.subList(0, 1));
+		Entity oldCitizen = region.entities.get(citizens.get(0).uuid);
+
+		Assert.assertTrue(registry.replaceRegionContents(region.regionId, citizens, scenery));
+
+		Assert.assertSame(region, registry.getRegion(region.regionId));
+		Assert.assertEquals(1, despawned.get());
+		Assert.assertEquals(citizens, region.citizenRoster);
+		Assert.assertEquals(scenery, region.sceneryRoster);
+		Assert.assertEquals(2, region.entities.size());
+		Assert.assertNull(region.entities.get(counting.uuid));
+		Assert.assertNotSame(oldCitizen, region.entities.get(citizens.get(0).uuid));
+		Assert.assertTrue(region.entities.get(scenery.get(0).uuid) instanceof Scenery);
+
+		// The rosters were copied: changing the given lists does not reach the region
+		citizens.clear();
+		Assert.assertEquals(1, region.citizenRoster.size());
+	}
+
+	@Test
+	public void replaceRegionContentsNeedsALoadedRegion() throws IOException {
+		Assert.assertFalse(registry.replaceRegionContents(regionIdWithoutData(), Collections.emptyList(),
+			Collections.emptyList()));
+		Assert.assertTrue(registry.isEmpty());
+	}
 }

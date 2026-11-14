@@ -447,6 +447,40 @@ public class CitizenRegistry {
 		return true;
 	}
 
+	/**
+	 * Client thread only. Replaces everything in the loaded region {@code regionId} with entities built from the given
+	 * rosters, which are copied. The old entities are despawned. If an entity cannot be built, the region is left as it
+	 * was.
+	 *
+	 * @return whether the region was loaded
+	 */
+	boolean replaceRegionContents(int regionId, List<CitizenInfo> citizenRoster, List<SceneryInfo> sceneryRoster) {
+		assert plugin.client.isClientThread();
+
+		CitizenRegion region = regions.get(regionId);
+		if (region == null) {
+			return false;
+		}
+		List<CitizenInfo> citizens = new ArrayList<>(citizenRoster);
+		List<SceneryInfo> scenery = new ArrayList<>(sceneryRoster);
+		Map<UUID, Entity> entities = new HashMap<>();
+		for (CitizenInfo info : citizens) {
+			entities.put(info.uuid, loadCitizen(info));
+		}
+		for (SceneryInfo info : scenery) {
+			entities.put(info.uuid, loadScenery(info));
+		}
+
+		region.entities.values().forEach(CitizenRegistry::despawnSafely);
+		region.entities.clear();
+		region.entities.putAll(entities);
+		region.citizenRoster.clear();
+		region.citizenRoster.addAll(citizens);
+		region.sceneryRoster.clear();
+		region.sceneryRoster.addAll(scenery);
+		return true;
+	}
+
 	private Entity buildEntity(EntityInfo info) {
 		if (info instanceof CitizenInfo) {
 			return loadCitizen((CitizenInfo) info);
