@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +37,7 @@ public final class ScriptLoader {
 			return null;
 		}
 
-		try (Reader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+		try (Reader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
 			ScriptFile script = gson.fromJson(reader, ScriptFile.class);
 			scriptCache.put(scriptName, script);
 			script.name = scriptName;

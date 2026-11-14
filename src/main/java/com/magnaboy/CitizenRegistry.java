@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -93,12 +94,15 @@ public class CitizenRegistry {
 			return null;
 		}
 
-		try (Reader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+		try (Reader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
 			CitizenRegion region = gson.fromJson(reader, CitizenRegion.class);
 			if (region == null) {
+				log.warn("Region {} not loaded: its data file is empty", regionId);
 				return null;
 			}
 			if (region.version != VALID_REGION_VERSION) {
+				log.warn("Region {} not loaded: data version {} is not the supported {}", regionId, region.version,
+					VALID_REGION_VERSION);
 				return null;
 			}
 			for (CitizenInfo cInfo : region.citizenRoster) {
@@ -114,6 +118,7 @@ public class CitizenRegistry {
 			regions.put(regionId, region);
 			return region;
 		} catch (IOException e) {
+			log.warn("Region {} not loaded: its data file could not be read", regionId, e);
 			return null;
 		}
 	}
