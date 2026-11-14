@@ -14,7 +14,15 @@ final class EditorOrientation {
 	 * has that angle.
 	 */
 	static CardinalDirection toDropdown(Integer stored) {
-		return CardinalDirection.fromInteger(stored);
+		if (stored == null) {
+			return CardinalDirection.South;
+		}
+		for (CardinalDirection direction : CardinalDirection.values()) {
+			if (direction.getAngle() == stored) {
+				return direction;
+			}
+		}
+		return null;
 	}
 
 	/**

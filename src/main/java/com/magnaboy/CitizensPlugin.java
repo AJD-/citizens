@@ -1,6 +1,5 @@
 package com.magnaboy;
 
-import com.google.gson.Gson;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.util.Providers;
@@ -38,11 +37,9 @@ public class CitizensPlugin extends Plugin {
 	private static final int REMARK_DISTANCE = 15;
 
 	@Inject
-	public Client client;
+	Client client;
 	@Inject
-	public ClientThread clientThread;
-	@Inject
-	public Gson gson;
+	ClientThread clientThread;
 	@Inject
 	ChatMessageManager chatMessageManager;
 	@Inject

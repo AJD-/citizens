@@ -1,6 +1,5 @@
 package com.magnaboy;
 
-import static com.magnaboy.Util.worldPointToShortCoord;
 import com.magnaboy.serialization.CitizenInfo;
 import com.magnaboy.serialization.EntityInfo;
 import com.magnaboy.serialization.SceneryInfo;
@@ -149,8 +148,8 @@ class CitizenPanel extends PluginPanel {
 			+ message.replace("&", "&amp;").replace("<", "&lt;") + "</div></html>");
 		messageLabel.setVisible(message != null);
 
-		selectWanderBL.setText(wanderRegionBL == null ? "Select BL" : Util.worldPointToShortCoord(wanderRegionBL));
-		selectWanderTR.setText(wanderRegionTR == null ? "Select TR" : Util.worldPointToShortCoord(wanderRegionTR));
+		selectWanderBL.setText(wanderRegionBL == null ? "Select BL" : worldPointToShortCoord(wanderRegionBL));
+		selectWanderTR.setText(wanderRegionTR == null ? "Select TR" : worldPointToShortCoord(wanderRegionTR));
 	}
 
 	private String validateFields() {
@@ -759,6 +758,20 @@ class CitizenPanel extends PluginPanel {
 	}
 
 	private static String toCsv(int[] values) {
-		return values == null ? "" : Util.intArrayToString(values);
+		if (values == null) {
+			return "";
+		}
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < values.length; i++) {
+			if (i > 0) {
+				sb.append(",");
+			}
+			sb.append(values[i]);
+		}
+		return sb.toString();
+	}
+
+	private static String worldPointToShortCoord(WorldPoint point) {
+		return String.format("%d, %d, %d", point.getX(), point.getY(), point.getPlane());
 	}
 }

@@ -27,7 +27,6 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 		{256, 256, 0, 1792, 1792}};
 	// CHECKSTYLE:ON
 	private static final int CENTER_INDEX_5X5 = 2;
-	public final CitizensPlugin plugin;
 	private final Client client;
 	private final List<Target> targetQueue = new ArrayList<>();
 	@Nullable
@@ -39,7 +38,6 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 
 	public Citizen(CitizensPlugin plugin) {
 		super(plugin);
-		this.plugin = plugin;
 		this.client = plugin.client;
 	}
 

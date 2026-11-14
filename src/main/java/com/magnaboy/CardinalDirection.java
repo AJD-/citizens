@@ -1,6 +1,5 @@
 package com.magnaboy;
 
-import java.util.HashMap;
 import lombok.Getter;
 
 @Getter
@@ -13,22 +12,10 @@ public enum CardinalDirection {
 	NorthWest(768),
 	East(1536);
 
-	private static final HashMap<Integer, CardinalDirection> intToType = new HashMap<>();
-
-	static {
-		for (CardinalDirection type : CardinalDirection.values()) {
-			intToType.put(type.getAngle(), type);
-		}
-	}
-
 	private final int angle;
 
 	CardinalDirection(int angle) {
 		this.angle = angle;
-	}
-
-	public static CardinalDirection fromInteger(Integer i) {
-		return i == null ? CardinalDirection.South : intToType.get(i);
 	}
 
 }
