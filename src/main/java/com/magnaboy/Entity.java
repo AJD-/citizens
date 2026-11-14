@@ -30,7 +30,7 @@ import net.runelite.api.model.Jarvis;
  * <p>
  * Concurrency: constructors make no client calls. The RuneLiteObject is created lazily on the client thread at the
  * first successful {@link #spawn()}, and every method that touches it or the client runs on the client thread.
- * {@link #isActive()} and {@link #getAnimationID()} read plain fields and may be called from any thread.
+ * The fields are read and written on the client thread only.
  */
 @Slf4j
 public class Entity<T extends Entity<T>> {
@@ -57,16 +57,16 @@ public class Entity<T extends Entity<T>> {
 	 * {@link #setLocation(LocalPoint)}.
 	 */
 	@Getter
-	private volatile WorldPoint worldLocation;
+	private WorldPoint worldLocation;
 	private int[] modelIDs;
 	private int[] recolorsToFind;
 	private int[] recolorsToReplace;
 	private Integer objectToRemove;
 
-	// Mirrors of client-thread state, readable from any thread
-	private volatile boolean active;
-	private volatile int animationId = -1;
-	private volatile int orientation;
+	// Mirrors of the object's state, kept so that they can be read before the object exists
+	private boolean active;
+	private int animationId = -1;
+	private int orientation;
 
 	@Getter
 	private int modelHeight;
@@ -75,6 +75,14 @@ public class Entity<T extends Entity<T>> {
 
 	public Entity(CitizensPlugin plugin) {
 		this.plugin = plugin;
+	}
+
+	/**
+	 * This entity as its own concrete type, for the chained setters.
+	 */
+	@SuppressWarnings("unchecked") // T is always the subclass that extends Entity<T>
+	protected T self() {
+		return (T) this;
 	}
 
 	protected static SimplePolygon calculateAABB(Client client, WorldView wv, Model m, Integer jauOrient, int x, int y, int z) {
@@ -192,17 +200,17 @@ public class Entity<T extends Entity<T>> {
 
 	public T setWorldLocation(WorldPoint location) {
 		this.worldLocation = location;
-		return (T) this;
+		return self();
 	}
 
 	public T setObjectToRemove(Integer objectToRemove) {
 		this.objectToRemove = objectToRemove;
-		return (T) this;
+		return self();
 	}
 
 	public T addMergedObject(MergedObject mergedObject) {
 		this.mergedObjects.add(mergedObject);
-		return (T) this;
+		return self();
 	}
 
 	/**
@@ -225,38 +233,38 @@ public class Entity<T extends Entity<T>> {
 
 	public T setScale(float[] scale) {
 		this.scale = scale;
-		return (T) this;
+		return self();
 	}
 
 	public T setTranslate(float translateX, float translateY, float translateZ) {
 		this.translate = new float[]{translateX, translateY, translateZ};
-		return (T) this;
+		return self();
 	}
 
 	public T setTranslate(float[] translate) {
 		this.translate = translate;
-		return (T) this;
+		return self();
 	}
 
 	public T setBaseOrientation(CardinalDirection baseOrientation) {
 		this.baseOrientation = baseOrientation.getAngle();
-		return (T) this;
+		return self();
 	}
 
 	public T setBaseOrientation(Integer baseOrientation) {
 		this.baseOrientation = baseOrientation;
-		return (T) this;
+		return self();
 	}
 
 	public T setModelIDs(int[] modelIDs) {
 		this.modelIDs = modelIDs;
-		return (T) this;
+		return self();
 	}
 
 	public T setModelRecolors(int[] recolorsToFind, int[] recolorsToReplace) {
 		this.recolorsToFind = recolorsToFind;
 		this.recolorsToReplace = recolorsToReplace;
-		return (T) this;
+		return self();
 	}
 
 	/**
@@ -269,7 +277,7 @@ public class Entity<T extends Entity<T>> {
 		rlObject.setLocation(location, getPlane());
 		WorldPoint wp = WorldPoint.fromLocal(plugin.client, location);
 		setWorldLocation(wp);
-		return (T) this;
+		return self();
 	}
 
 	public int getPlane() {
@@ -429,6 +437,8 @@ public class Entity<T extends Entity<T>> {
 			}
 			rlObject = plugin.client.createRuneLiteObject();
 			rlObject.setModel(model);
+			// The height is only valid once the bounds are calculated
+			model.calculateBoundsCylinder();
 			modelHeight = model.getModelHeight();
 		}
 
@@ -491,19 +501,19 @@ public class Entity<T extends Entity<T>> {
 
 	public T setIdleAnimation(AnimationID idleAnimationId) {
 		this.idleAnimationId = idleAnimationId;
-		return (T) this;
+		return self();
 	}
 
 	public T setUUID(UUID uuid) {
 		if (this.uuid == null) {
 			this.uuid = uuid;
 		}
-		return (T) this;
+		return self();
 	}
 
 	public T setRegion(int regionId) {
 		this.regionId = regionId;
-		return (T) this;
+		return self();
 	}
 
 	@Override
@@ -523,18 +533,6 @@ public class Entity<T extends Entity<T>> {
 	@Override
 	public int hashCode() {
 		return Objects.hash(uuid);
-	}
-
-	public String getModelIDsString() {
-		return Util.intArrayToString(modelIDs);
-	}
-
-	public String getRecolorFindString() {
-		return Util.intArrayToString(recolorsToFind);
-	}
-
-	public String getRecolorReplaceString() {
-		return Util.intArrayToString(recolorsToReplace);
 	}
 
 	private void removeOtherObjects(WorldView wv) {

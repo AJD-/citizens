@@ -21,11 +21,6 @@ public final class Util {
 		return items[index];
 	}
 
-	public static int getRandomItem(int[] items) {
-		int index = ThreadLocalRandom.current().nextInt(items.length);
-		return items[index];
-	}
-
 	public static int radToJau(double a) {
 		int j = (int) Math.round(a / Perspective.UNIT);
 		return j & 2047;

@@ -45,17 +45,17 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 
 	public T setName(String name) {
 		this.name = name;
-		return (T) this;
+		return self();
 	}
 
 	public T setExamine(String examine) {
 		this.examine = examine;
-		return (T) this;
+		return self();
 	}
 
 	public T setRemarks(String[] remarks) {
 		this.remarks = remarks;
-		return (T) this;
+		return self();
 	}
 
 	public boolean despawn() {

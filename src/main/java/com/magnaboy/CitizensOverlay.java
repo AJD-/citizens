@@ -38,7 +38,7 @@ public class CitizensOverlay extends Overlay {
 		}
 
 		registry.forEachActiveEntity((entity) -> {
-			if (!entity.isCitizen()) {
+			if (!entity.isActive() || !entity.isCitizen()) {
 				return;
 			}
 
@@ -51,8 +51,8 @@ public class CitizensOverlay extends Overlay {
 
 			// Render remarks
 			if (citizen.activeRemark != null) {
-				Point p = Perspective.localToCanvas(plugin.client, citizen.getLocalLocation(), wv.getPlane(), citizen
-					.rlObject.getModel().getModelHeight());
+				Point p = Perspective.localToCanvas(plugin.client, citizen.getLocalLocation(), wv.getPlane(),
+					citizen.getModelHeight());
 				if (p != null) {
 					graphics.setFont(overheadFont);
 					FontMetrics metrics = graphics.getFontMetrics(overheadFont);

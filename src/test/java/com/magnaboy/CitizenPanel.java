@@ -633,7 +633,7 @@ class CitizenPanel extends PluginPanel {
 		return EditorOrientation.fromDropdown((CardinalDirection) orientationField.getSelectedItem(), customOrientation);
 	}
 
-	private <T extends JComponent> T createLabeledComponent(JComponent component, String label, JPanel panel, GridBagConstraints constraints) {
+	private <T extends JComponent> T createLabeledComponent(T component, String label, JPanel panel, GridBagConstraints constraints) {
 		final JPanel container = new JPanel();
 		container.setLayout(new BorderLayout());
 
@@ -649,7 +649,7 @@ class CitizenPanel extends PluginPanel {
 		panel.add(container, constraints);
 		allElements.add(container);
 		allElements.add(component);
-		return (T) component;
+		return component;
 	}
 
 	//Creates multiple components under a single label
