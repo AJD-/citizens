@@ -3,6 +3,7 @@ package com.magnaboy;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.magnaboy.serialization.CitizenInfo;
+import com.magnaboy.serialization.EntityInfo;
 import com.magnaboy.serialization.SceneryInfo;
 import java.io.IOException;
 import java.io.Reader;
@@ -430,5 +431,146 @@ public class CitizenRegistryTest {
 
 		region.entities.put(failing.uuid, failing);
 		region.entities.put(counting.uuid, counting);
+	}
+
+	/**
+	 * A loaded region with at least two citizens and one scenery entry.
+	 */
+	private CitizenRegion regionForEditing() throws IOException {
+		for (int id : regionIds()) {
+			CitizenRegion region = registry.loadRegion(id);
+			if (region.citizenRoster.size() >= 2 && !region.sceneryRoster.isEmpty()) {
+				return region;
+			}
+		}
+		throw new AssertionError("No region with two citizens and a scenery entry");
+	}
+
+	private static List<UUID> rosterOrder(CitizenRegion region) {
+		List<UUID> uuids = new ArrayList<>();
+		region.citizenRoster.forEach(info -> uuids.add(info.uuid));
+		region.sceneryRoster.forEach(info -> uuids.add(info.uuid));
+		return uuids;
+	}
+
+	private static <I extends EntityInfo> I copyOf(I info, Class<I> type) {
+		return RuneLiteAPI.GSON.fromJson(RuneLiteAPI.GSON.toJsonTree(info), type);
+	}
+
+	@Test
+	public void getEntityInfoFindsBothRosters() throws IOException {
+		CitizenRegion region = regionForEditing();
+		CitizenInfo citizen = region.citizenRoster.get(1);
+		SceneryInfo scenery = region.sceneryRoster.get(0);
+
+		Assert.assertSame(citizen, registry.getEntityInfo(region.regionId, citizen.uuid));
+		Assert.assertSame(scenery, registry.getEntityInfo(region.regionId, scenery.uuid));
+		Assert.assertNull(registry.getEntityInfo(region.regionId, UUID.randomUUID()));
+		Assert.assertNull(registry.getEntityInfo(regionIdWithoutData(), citizen.uuid));
+	}
+
+	@Test
+	public void updateReplacesTheEntityAndKeepsTheRosterOrder() throws IOException {
+		CitizenRegion region = regionForEditing();
+		List<UUID> orderBefore = rosterOrder(region);
+		int entitiesBefore = region.entities.size();
+		CitizenInfo stored = region.citizenRoster.get(0);
+		Entity old = region.entities.get(stored.uuid);
+		CitizenInfo edited = copyOf(stored, CitizenInfo.class);
+		edited.name = "Edited name";
+
+		Entity updated = registry.updateEntity(edited);
+
+		Assert.assertNotNull(updated);
+		Assert.assertNotSame(old, updated);
+		Assert.assertSame(updated, region.entities.get(stored.uuid));
+		Assert.assertEquals("Edited name", updated.name);
+		Assert.assertEquals(entitiesBefore, region.entities.size());
+		Assert.assertEquals(orderBefore, rosterOrder(region));
+		Assert.assertSame(edited, region.citizenRoster.get(0));
+
+		SceneryInfo storedScenery = region.sceneryRoster.get(0);
+		SceneryInfo editedScenery = copyOf(storedScenery, SceneryInfo.class);
+		editedScenery.baseOrientation = 500;
+		Entity updatedScenery = registry.updateEntity(editedScenery);
+		Assert.assertSame(updatedScenery, region.entities.get(storedScenery.uuid));
+		Assert.assertEquals(Integer.valueOf(500), updatedScenery.baseOrientation);
+		Assert.assertEquals(orderBefore, rosterOrder(region));
+		Assert.assertSame(editedScenery, region.sceneryRoster.get(0));
+	}
+
+	@Test
+	public void updateOfAnUnknownEntityChangesNothing() throws IOException {
+		CitizenRegion region = regionForEditing();
+		List<UUID> orderBefore = rosterOrder(region);
+		CitizenInfo unknown = copyOf(region.citizenRoster.get(0), CitizenInfo.class);
+		unknown.uuid = UUID.randomUUID();
+
+		Assert.assertNull(registry.updateEntity(unknown));
+		Assert.assertEquals(orderBefore, rosterOrder(region));
+	}
+
+	@Test
+	public void addEntityAppendsToItsRegion() throws IOException {
+		CitizenRegion region = regionForEditing();
+		List<UUID> orderBefore = rosterOrder(region);
+		SceneryInfo info = copyOf(region.sceneryRoster.get(0), SceneryInfo.class);
+		info.uuid = UUID.randomUUID();
+
+		Entity added = registry.addEntity(info);
+
+		Assert.assertTrue(added instanceof Scenery);
+		Assert.assertSame(added, region.entities.get(info.uuid));
+		Assert.assertSame(info, region.sceneryRoster.get(region.sceneryRoster.size() - 1));
+		Assert.assertEquals(orderBefore.size() + 1, rosterOrder(region).size());
+		Assert.assertFalse(added.isActive());
+	}
+
+	@Test
+	public void addEntityNeedsALoadedRegion() throws IOException {
+		CitizenRegion region = regionForEditing();
+		CitizenInfo info = copyOf(region.citizenRoster.get(0), CitizenInfo.class);
+		info.uuid = UUID.randomUUID();
+		info.regionId = regionIdWithoutData();
+
+		Assert.assertNull(registry.addEntity(info));
+		Assert.assertNull(registry.getRegion(info.regionId));
+	}
+
+	@Test
+	public void removeEntityDropsItAndItsRosterEntry() throws IOException {
+		CitizenRegion region = regionForEditing();
+		CitizenInfo info = region.citizenRoster.get(1);
+		Entity entity = region.entities.get(info.uuid);
+		int entitiesBefore = region.entities.size();
+		int rosterBefore = region.citizenRoster.size();
+
+		Assert.assertTrue(registry.removeEntity(entity));
+
+		Assert.assertNull(region.entities.get(info.uuid));
+		Assert.assertEquals(entitiesBefore - 1, region.entities.size());
+		Assert.assertEquals(rosterBefore - 1, region.citizenRoster.size());
+		Assert.assertNull(registry.getEntityInfo(region.regionId, info.uuid));
+	}
+
+	@Test
+	public void createRegionIsAnEmptyInMemoryRegion() throws IOException {
+		int id = regionIdWithoutData();
+		Set<Integer> synced = ids(id);
+		registry.syncRegions(synced);
+		Assert.assertNull(registry.getRegion(id));
+
+		CitizenRegion created = registry.createRegion(id);
+
+		Assert.assertSame(created, registry.getRegion(id));
+		Assert.assertEquals(id, created.regionId);
+		Assert.assertEquals(0.8f, created.version, 0f);
+		Assert.assertTrue(created.citizenRoster.isEmpty());
+		Assert.assertTrue(created.sceneryRoster.isEmpty());
+		Assert.assertTrue(registry.isSyncedWith(synced));
+		Assert.assertSame(created, registry.createRegion(id));
+
+		CitizenRegion loaded = registry.loadRegion(regionIds().get(0));
+		Assert.assertSame(loaded, registry.createRegion(loaded.regionId));
 	}
 }
