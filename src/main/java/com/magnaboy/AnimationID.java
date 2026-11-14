@@ -40,8 +40,8 @@ public enum AnimationID {
 	ChildStarJump(218),
 	ChildPlay1(6484),
 	ChildPlay2(6485),
-	ChildWalk(189),
-	ChildIdle(195),
+	ChildWalk(12042),
+	ChildIdle(2331),
 
 	SuzieIdle(10060),
 	LectorIdle(5875),
