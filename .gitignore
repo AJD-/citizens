@@ -12,3 +12,7 @@ citizens.log
 bin/
 dump/
 *.class
+
+# tools/cache-diff scratch: game caches and generated id maps (never commit)
+/tools/cache-diff/caches/
+/tools/cache-diff/out/
