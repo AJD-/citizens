@@ -5,7 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.runelite.api.Client;
+import net.runelite.api.CollisionData;
 import net.runelite.api.CollisionDataFlag;
+import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 
@@ -39,7 +41,6 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 		super(plugin);
 		this.plugin = plugin;
 		this.client = plugin.client;
-		this.rlObject = client.createRuneLiteObject();
 	}
 
 	public T setName(String name) {
@@ -132,11 +133,18 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 			throw new IllegalStateException(debugName() + " is a stationary citizen and cannot move.");
 		}
 
-		LocalPoint localPosition = LocalPoint.fromWorld(client, worldPosition);
+		WorldView wv = client.getTopLevelWorldView();
+		if (wv == null) {
+			return;
+		}
+
+		LocalPoint localPosition = LocalPoint.fromWorld(wv, worldPosition);
 
 		if (localPosition == null) {
 			return;
 		}
+
+		CollisionData[] collisionMaps = wv.getCollisionMaps();
 
 		// use current position if nothing is in queue
 		WorldPoint prevWorldPosition = getWorldLocation();
@@ -146,9 +154,9 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 			int dx = worldPosition.getX() - prevWorldPosition.getX();
 			int dy = worldPosition.getY() - prevWorldPosition.getY();
 
-			if (distance == 1 && dx != 0 && dy != 0) { // test for blockage along diagonal
+			if (collisionMaps != null && distance == 1 && dx != 0 && dy != 0) { // test for blockage along diagonal
 				// if blocked diagonally, go around in an L shape (2 options)
-				int[][] colliders = client.getCollisionMaps()[worldPosition.getPlane()].getFlags();
+				int[][] colliders = collisionMaps[worldPosition.getPlane()].getFlags();
 				final int diagonalTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 - dy][CENTER_INDEX_5X5 + dx];
 				final int axisXTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5][CENTER_INDEX_5X5 + dx] | BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 + dy][CENTER_INDEX_5X5] | CollisionDataFlag.BLOCK_MOVEMENT_FULL;
 				final int axisYTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 - dy][CENTER_INDEX_5X5] | BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5][CENTER_INDEX_5X5 - dx] | CollisionDataFlag.BLOCK_MOVEMENT_FULL;
@@ -167,8 +175,8 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 						dx = 0;
 					}
 				}
-			} else if (distance == 2 && Math.abs(Math.abs(dy) - Math.abs(dx)) == 1) { // test for blockage along knight-style moves
-				int[][] colliders = client.getCollisionMaps()[worldPosition.getPlane()].getFlags();
+			} else if (collisionMaps != null && distance == 2 && Math.abs(Math.abs(dy) - Math.abs(dx)) == 1) { // test for blockage along knight-style moves
+				int[][] colliders = collisionMaps[worldPosition.getPlane()].getFlags();
 				final int diagonalTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 - dy][CENTER_INDEX_5X5 + dx];
 				final int axisXTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5][CENTER_INDEX_5X5 + dx] | BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 + dy][CENTER_INDEX_5X5] | CollisionDataFlag.BLOCK_MOVEMENT_FULL;
 				final int axisYTest = BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5 - dy][CENTER_INDEX_5X5] | BLOCKING_DIRECTIONS_5x5[CENTER_INDEX_5X5][CENTER_INDEX_5X5 - dx] | CollisionDataFlag.BLOCK_MOVEMENT_FULL;
@@ -226,7 +234,7 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 		if (remarkTimer == 0) {
 			this.activeRemark = null;
 		}
-		if (!rlObject.isActive()) {
+		if (!isActive()) {
 			return;
 		}
 
@@ -236,11 +244,12 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 
 		Target nextTarget = getCurrentTarget();
 		if (nextTarget != null) {
+			WorldView wv = client.getTopLevelWorldView();
 			int targetPlane = nextTarget.worldDestinationPosition.getPlane();
 			LocalPoint targetPosition = nextTarget.localDestinationPosition;
 			int targetOrientation = nextTarget.jauDestinationOrientation;
 
-			if (client.getPlane() != targetPlane || targetPosition == null || !targetPosition.isInScene() || targetOrientation < 0) {
+			if (wv == null || wv.getPlane() != targetPlane || targetPosition == null || !wv.contains(targetPosition) || targetOrientation < 0) {
 				despawn();
 				return;
 			}
@@ -250,7 +259,7 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 			int dy = targetPosition.getY() - currentPosition.getY();
 
 			if (dx != 0 || dy != 0) {
-				if (rlObject.getAnimation().getId() != movingAnimationId.getId()) {
+				if (getAnimationID() != movingAnimationId.getId()) {
 					setAnimation(movingAnimationId.getId());
 				}
 
@@ -263,7 +272,7 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 					dy = Integer.signum(dy) * speed;
 				}
 
-				LocalPoint newLocation = new LocalPoint(currentPosition.getX() + dx, currentPosition.getY() + dy);
+				LocalPoint newLocation = new LocalPoint(currentPosition.getX() + dx, currentPosition.getY() + dy, wv);
 				setLocation(newLocation);
 			} else {
 				targetQueue.remove(0);

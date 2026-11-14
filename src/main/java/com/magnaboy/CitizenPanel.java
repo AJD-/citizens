@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.inject.Inject;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -40,6 +41,8 @@ class CitizenPanel extends PluginPanel {
 	public JLabel reloadWarning;
 	public JCheckBox manualFieldsToggle;
 	private CitizensPlugin plugin;
+	@Inject
+	private CitizenRegistry registry;
 	private JLabel label;
 	private CitizensOverlay overlay;
 	// Editor Panel Fields
@@ -99,7 +102,7 @@ class CitizenPanel extends PluginPanel {
 		AtomicInteger activeEntities = new AtomicInteger();
 		AtomicInteger inactiveEntities = new AtomicInteger();
 
-		CitizenRegion.forEachEntity((entity) -> {
+		registry.forEachEntity((entity) -> {
 			if (entity == null) {
 				return;
 			}
@@ -122,7 +125,7 @@ class CitizenPanel extends PluginPanel {
 		if (state == GameState.LOGIN_SCREEN || state == GameState.LOGIN_SCREEN_AUTHENTICATOR) {
 			selectedPosition = null;
 		}
-		int dirtySize = CitizenRegion.dirtyRegionCount();
+		int dirtySize = registry.dirtyRegionCount();
 
 		reloadButton.setEnabled(state == GameState.LOGGED_IN);
 		selectedPositionLbl.setText(selectedPosition == null ? "N/A" : worldPointToShortCoord(selectedPosition));
@@ -438,11 +441,11 @@ class CitizenPanel extends PluginPanel {
 			spawnButton.addActionListener(e -> {
 				if (entityTypeSelection.getSelectedItem() == EntityType.Scenery) {
 					SceneryInfo info = buildSceneryInfo();
-					Scenery scenery = CitizenRegion.spawnSceneryFromPanel(info);
+					Scenery scenery = registry.spawnSceneryFromPanel(info);
 					selectedEntity = scenery;
 				} else {
 					CitizenInfo info = buildCitizenInfo(selectedPosition.getRegionID());
-					Citizen citizen = CitizenRegion.spawnCitizenFromPanel(info);
+					Citizen citizen = registry.spawnCitizenFromPanel(info);
 					selectedEntity = citizen;
 				}
 				selectedPosition = null;
@@ -460,14 +463,14 @@ class CitizenPanel extends PluginPanel {
 					CitizenInfo info = buildCitizenInfo(selectedEntity.regionId);
 					if (selectedEntity != null) {
 						info.uuid = selectedEntity.uuid;
-						CitizenRegion.updateEntity(info);
+						registry.updateEntity(info);
 					}
 				} else if (selectedEntity.entityType == EntityType.Scenery) {
 					SceneryInfo info = buildSceneryInfo();
 					if (selectedEntity != null) {
 
 						info.uuid = selectedEntity.uuid;
-						CitizenRegion.updateEntity(info);
+						registry.updateEntity(info);
 					}
 				}
 
@@ -487,8 +490,8 @@ class CitizenPanel extends PluginPanel {
 			deleteButton.setVisible(false);
 			deleteButton.setBackground(new Color(135, 58, 58));
 			deleteButton.addActionListener(e -> {
-				CitizenRegion.removeEntityFromRegion(selectedEntity);
-				selectedEntity.despawn();
+				// removeEntityFromRegion also despawns the entity, on the client thread
+				registry.removeEntityFromRegion(selectedEntity);
 			});
 			layoutPanel.add(deleteButton, gbc);
 		}
@@ -501,7 +504,7 @@ class CitizenPanel extends PluginPanel {
 			saveChangesButton.setText("Save Changes");
 			saveChangesButton.setFocusable(false);
 			saveChangesButton.addActionListener(e -> {
-				CitizenRegion.saveDirtyRegions();
+				registry.saveDirtyRegions();
 			});
 
 			gbc.gridx = 0;

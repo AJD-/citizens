@@ -2,8 +2,10 @@ package com.magnaboy;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.AABB;
 import net.runelite.api.Animation;
 import net.runelite.api.Client;
@@ -21,7 +23,18 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.geometry.SimplePolygon;
 import net.runelite.api.model.Jarvis;
 
+/**
+ * A fake NPC or piece of scenery backed by a {@link RuneLiteObject}.
+ * <p>
+ * Threading: constructors make no client calls. The RuneLiteObject is created lazily on the client thread at the
+ * first successful {@link #spawn()}, and every method that touches it or the client runs on the client thread.
+ * {@link #isActive()}, {@link #getAnimationID()}, {@link #getOrientation()} and {@link #getTileLocation()} read
+ * plain fields and may be called from any thread.
+ */
+@Slf4j
 public class Entity<T extends Entity<T>> {
+	private static final int MAX_MODEL_LOAD_ATTEMPTS = 50;
+
 	public Integer regionId;
 	public String name;
 	public String examine;
@@ -30,21 +43,37 @@ public class Entity<T extends Entity<T>> {
 	public float[] scale;
 	public float[] translate;
 	public List<MergedObject> mergedObjects = new ArrayList<>();
+	/**
+	 * Null until the first successful spawn.
+	 */
 	protected RuneLiteObject rlObject;
 	@Getter
 	protected EntityType entityType;
 	protected Integer baseOrientation;
 	protected UUID uuid;
+	/**
+	 * The tile the entity is on: its configured location until spawned, then kept in step with the object by
+	 * {@link #setLocation(LocalPoint)}.
+	 */
 	@Getter
-	private WorldPoint worldLocation;
+	private volatile WorldPoint worldLocation;
 	private int[] modelIDs;
 	private int[] recolorsToFind;
 	private int[] recolorsToReplace;
 	private Integer objectToRemove;
 
+	// Mirrors of client-thread state, readable from any thread
+	private volatile boolean active;
+	private volatile int animationId = -1;
+	private volatile int orientation;
+
+	@Getter
+	private int modelHeight;
+	private int modelLoadAttempts;
+	private boolean modelLoadFailed;
+
 	public Entity(CitizensPlugin plugin) {
 		this.plugin = plugin;
-		this.rlObject = plugin.client.createRuneLiteObject();
 	}
 
 	protected static SimplePolygon calculateAABB(Client client, WorldView wv, Model m, Integer jauOrient, int x, int y, int z) {
@@ -85,8 +114,11 @@ public class Entity<T extends Entity<T>> {
 		return Jarvis.convexHull(x2d, y2d);
 	}
 
+	/**
+	 * The id of the animation last set on the object, or -1 if none has been set.
+	 */
 	public int getAnimationID() {
-		return rlObject.getAnimation().getId();
+		return animationId;
 	}
 
 	public boolean isCitizen() {
@@ -100,31 +132,56 @@ public class Entity<T extends Entity<T>> {
 			return null;
 		}
 		int tileHeight = Perspective.getTileHeight(plugin.client, location, wv.getPlane());
-		return calculateAABB(plugin.client, wv, rlObject.getModel(), rlObject.getOrientation(), location.getX(), location.getY(), tileHeight);
+		return calculateAABB(plugin.client, wv, rlObject.getBaseModel(), rlObject.getOrientation(), location.getX(), location.getY(), tileHeight);
 	}
 
+	/**
+	 * Client thread only. Null when the object does not exist yet.
+	 */
 	public LocalPoint getLocalLocation() {
+		if (rlObject == null) {
+			return null;
+		}
 		return rlObject.getLocation();
 	}
 
 	public int getOrientation() {
-		return rlObject.getOrientation();
+		return orientation;
 	}
 
-	public void setModel(Model model) {
-		rlObject.setModel(model);
+	/**
+	 * Client thread only. Does nothing before the object exists.
+	 */
+	public void setOrientation(int orientation) {
+		if (rlObject == null) {
+			return;
+		}
+		rlObject.setOrientation(orientation);
+		this.orientation = orientation;
 	}
 
+	/**
+	 * Client thread only. Does nothing before the object exists.
+	 */
 	public void setAnimation(int animationID) {
-		plugin.clientThread.invokeLater(() -> {
-			Animation anim = plugin.client.loadAnimation(animationID);
-			rlObject.setAnimation(anim);
-		});
+		if (rlObject == null) {
+			return;
+		}
+		Animation anim = plugin.client.loadAnimation(animationID);
+		rlObject.setAnimation(anim);
+		this.animationId = animationID;
 	}
 
 	public T setWorldLocation(WorldPoint location) {
 		this.worldLocation = location;
 		return (T) this;
+	}
+
+	/**
+	 * The tile the entity is on. Unlike {@link Citizen#getWorldLocation()} this ignores any walk target.
+	 */
+	public WorldPoint getTileLocation() {
+		return worldLocation;
 	}
 
 	public T setObjectToRemove(Integer objectToRemove) {
@@ -137,7 +194,15 @@ public class Entity<T extends Entity<T>> {
 		return (T) this;
 	}
 
+	/**
+	 * Client thread only. Runs every game tick: spawns or despawns the entity depending on whether it should render.
+	 */
 	public void update() {
+		assert plugin.client.isClientThread();
+
+		// Pick up objects the client has removed by itself
+		active = rlObject != null && rlObject.isActive();
+
 		boolean inScene = shouldRender();
 
 		if (inScene) {
@@ -183,6 +248,9 @@ public class Entity<T extends Entity<T>> {
 		return (T) this;
 	}
 
+	/**
+	 * Client thread only. The object must exist.
+	 */
 	public T setLocation(LocalPoint location) {
 		if (location == null) {
 			throw new IllegalStateException("Tried to set null location");
@@ -197,8 +265,16 @@ public class Entity<T extends Entity<T>> {
 		return this.worldLocation.getPlane();
 	}
 
+	/**
+	 * Client thread only.
+	 */
 	public boolean shouldRender() {
-		if (getPlane() != plugin.client.getPlane()) {
+		WorldView wv = plugin.client.getTopLevelWorldView();
+		if (wv == null) {
+			return false;
+		}
+
+		if (getPlane() != wv.getPlane()) {
 			return false;
 		}
 
@@ -208,10 +284,13 @@ public class Entity<T extends Entity<T>> {
 			return false;
 		}
 
-		LocalPoint lp = LocalPoint.fromWorld(plugin.client, worldLocation);
+		LocalPoint lp = LocalPoint.fromWorld(wv, worldLocation);
 		return lp != null;
 	}
 
+	/**
+	 * Client thread only. {@link Float#MAX_VALUE} when there is no local player.
+	 */
 	public float distanceToPlayer() {
 		Player player = plugin.client.getLocalPlayer();
 		if (player == null) {
@@ -221,17 +300,20 @@ public class Entity<T extends Entity<T>> {
 		return playerWorldLoc.distanceTo(getWorldLocation());
 	}
 
+	/**
+	 * Client thread only. Removes the object from the scene.
+	 *
+	 * @return whether the entity was active
+	 */
 	public boolean despawn() {
-		if (rlObject == null) {
-			return false;
-		}
-		if (!rlObject.isActive()) {
+		assert plugin.client.isClientThread();
+
+		if (rlObject == null || !active) {
 			return false;
 		}
 
-		plugin.clientThread.invokeLater(() -> {
-			rlObject.setActive(false);
-		});
+		rlObject.setActive(false);
+		active = false;
 
 		if (plugin.IS_DEVELOPMENT) {
 			plugin.panel.update();
@@ -240,52 +322,66 @@ public class Entity<T extends Entity<T>> {
 		return true;
 	}
 
-	private void initModel() {
-		if (rlObject.getModel() == null) {
-			ArrayList<ModelData> models = new ArrayList<ModelData>();
-			for (int modelID : modelIDs) {
-				ModelData data = plugin.client.loadModelData(modelID);
-				models.add(data);
+	/**
+	 * Builds the model from the cache. Returns null, without changing any loaded data, if a model is not loaded yet.
+	 */
+	private Model buildModel() {
+		List<ModelData> models = new ArrayList<>();
+		for (int modelID : modelIDs) {
+			ModelData data = plugin.client.loadModelData(modelID);
+			if (data == null) {
+				onModelLoadFailure(modelID);
+				return null;
 			}
-
-			// Merge merged objects
-			for (MergedObject obj : mergedObjects) {
-				ModelData data = plugin.client.loadModelData(obj.objectID);
-				for (int i = 0; i < obj.count90CCWRotations; i++) {
-					data.cloneVertices();
-					data.rotateY90Ccw();
-				}
-				models.add(data);
-			}
-
-			ModelData finalModel = plugin.client.mergeModels(models.toArray(new ModelData[models.size()]), models.size());
-			if (recolorsToReplace != null && recolorsToReplace.length > 0) {
-				for (int i = 0; i < recolorsToReplace.length; i++) {
-					finalModel.recolor((short) recolorsToFind[i], (short) recolorsToReplace[i]);
-				}
-			}
-			if (scale != null) {
-				finalModel.cloneVertices();
-				finalModel.scale(-(Math.round(scale[0] * 128)), -(Math.round(scale[1] * 128)), -(Math.round(scale[2] * 128)));
-			}
-
-			if (translate != null) {
-				finalModel.cloneVertices();
-				finalModel.translate(-(Math.round(translate[0] * 128)), -(Math.round(translate[1] * 128)), -(Math.round(translate[2] * 128)));
-			}
-
-			rlObject.setModel(finalModel.light(64, 850, -30, -50, -30));
+			models.add(data);
 		}
 
-		if (baseOrientation != null && rlObject.getOrientation() == 0) {
-			rlObject.setOrientation(baseOrientation);
+		List<ModelData> mergedModels = new ArrayList<>();
+		for (MergedObject obj : mergedObjects) {
+			ModelData data = plugin.client.loadModelData(obj.objectID);
+			if (data == null) {
+				onModelLoadFailure(obj.objectID);
+				return null;
+			}
+			mergedModels.add(data);
 		}
 
-		if (this.idleAnimationId != null && rlObject.getAnimation() == null) {
-			setAnimation((this.idleAnimationId).getId());
+		// Merge merged objects
+		for (int m = 0; m < mergedObjects.size(); m++) {
+			ModelData data = mergedModels.get(m);
+			for (int i = 0; i < mergedObjects.get(m).count90CCWRotations; i++) {
+				data.cloneVertices();
+				data.rotateY90Ccw();
+			}
+			models.add(data);
 		}
 
-		rlObject.setShouldLoop(true);
+		ModelData finalModel = plugin.client.mergeModels(models.toArray(new ModelData[models.size()]), models.size());
+		if (recolorsToReplace != null && recolorsToReplace.length > 0) {
+			for (int i = 0; i < recolorsToReplace.length; i++) {
+				finalModel.recolor((short) recolorsToFind[i], (short) recolorsToReplace[i]);
+			}
+		}
+		if (scale != null) {
+			finalModel.cloneVertices();
+			finalModel.scale(-(Math.round(scale[0] * 128)), -(Math.round(scale[1] * 128)), -(Math.round(scale[2] * 128)));
+		}
+
+		if (translate != null) {
+			finalModel.cloneVertices();
+			finalModel.translate(-(Math.round(translate[0] * 128)), -(Math.round(translate[1] * 128)), -(Math.round(translate[2] * 128)));
+		}
+
+		return finalModel.light(64, 850, -30, -50, -30);
+	}
+
+	private void onModelLoadFailure(int modelID) {
+		modelLoadAttempts++;
+		if (modelLoadAttempts >= MAX_MODEL_LOAD_ATTEMPTS) {
+			modelLoadFailed = true;
+			log.warn("{} will not be spawned: model {} did not load after {} attempts", debugName(), modelID,
+				MAX_MODEL_LOAD_ATTEMPTS);
+		}
 	}
 
 	public String debugName() {
@@ -302,32 +398,52 @@ public class Entity<T extends Entity<T>> {
 		}
 	}
 
-	private void initLocation() {
-		LocalPoint initializedLocation = LocalPoint.fromWorld(plugin.client, worldLocation);
-		if (initializedLocation == null) {
-			throw new IllegalStateException("Tried to spawn entity with no initializedLocation: " + debugName());
-		}
-		setLocation(initializedLocation);
-	}
-
+	/**
+	 * Client thread only. Builds the model and creates the object on first use, then places and shows it. If a
+	 * model is not loaded yet nothing is shown and the next {@link #update()} tries again.
+	 *
+	 * @return whether the entity was spawned
+	 */
 	public boolean spawn() {
-		if (this.isActive()) {
+		assert plugin.client.isClientThread();
+
+		if (active || modelLoadFailed) {
 			return false;
 		}
 
-		initModel();
-		initLocation();
-		if (objectToRemove != null) {
-			removeOtherObjects();
+		WorldView wv = plugin.client.getTopLevelWorldView();
+		if (wv == null) {
+			return false;
+		}
+		LocalPoint initialLocation = LocalPoint.fromWorld(wv, worldLocation);
+		if (initialLocation == null) {
+			return false;
 		}
 
+		if (rlObject == null) {
+			Model model = buildModel();
+			if (model == null) {
+				return false;
+			}
+			rlObject = plugin.client.createRuneLiteObject();
+			rlObject.setModel(model);
+			modelHeight = model.getModelHeight();
+		}
+
+		setLocation(initialLocation);
+		if (objectToRemove != null) {
+			removeOtherObjects(wv);
+		}
+
+		if (baseOrientation != null && orientation == 0) {
+			setOrientation(baseOrientation);
+		}
 		if (idleAnimationId != null) {
 			setAnimation(idleAnimationId.getId());
 		}
 
-		plugin.clientThread.invokeLater(() -> {
-			rlObject.setActive(true);
-		});
+		rlObject.setActive(true);
+		active = true;
 
 		if (plugin.IS_DEVELOPMENT) {
 			plugin.panel.update();
@@ -337,9 +453,12 @@ public class Entity<T extends Entity<T>> {
 	}
 
 	public boolean isActive() {
-		return rlObject.isActive();
+		return active;
 	}
 
+	/**
+	 * Client thread only.
+	 */
 	public boolean rotateObject(double intx, double inty) {
 		if (intx == 0 && inty == 0) {
 			return true;
@@ -365,7 +484,7 @@ public class Entity<T extends Entity<T>> {
 
 			int newOrientation = (Util.JAU_FULL_ROTATION + rlObject.getOrientation() + dJau) % Util.JAU_FULL_ROTATION;
 
-			rlObject.setOrientation(newOrientation);
+			setOrientation(newOrientation);
 			dJau = (targetOrientation - newOrientation) % Util.JAU_FULL_ROTATION;
 		}
 
@@ -400,7 +519,12 @@ public class Entity<T extends Entity<T>> {
 		}
 
 		Entity compare = (Entity) o;
-		return this.uuid == compare.uuid;
+		return Objects.equals(this.uuid, compare.uuid);
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(uuid);
 	}
 
 	public String getModelIDsString() {
@@ -415,11 +539,11 @@ public class Entity<T extends Entity<T>> {
 		return Util.intArrayToString(recolorsToReplace);
 	}
 
-	private void removeOtherObjects() {
-		Scene scene = plugin.client.getScene();
-		Tile[][] tiles = scene.getTiles()[plugin.client.getPlane()];
+	private void removeOtherObjects(WorldView wv) {
+		Scene scene = wv.getScene();
+		Tile[][] tiles = scene.getTiles()[wv.getPlane()];
 
-		LocalPoint lp = LocalPoint.fromWorld(plugin.client, worldLocation);
+		LocalPoint lp = LocalPoint.fromWorld(wv, worldLocation);
 		if (lp == null) {
 			return;
 		}

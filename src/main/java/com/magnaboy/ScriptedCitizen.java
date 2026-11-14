@@ -4,7 +4,6 @@ import com.magnaboy.Util.AnimData;
 import com.magnaboy.scripting.ActionType;
 import com.magnaboy.scripting.ScriptAction;
 import com.magnaboy.scripting.ScriptFile;
-import com.magnaboy.scripting.ScriptLoader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import net.runelite.api.coords.WorldPoint;
@@ -27,12 +26,13 @@ public class ScriptedCitizen extends Citizen<ScriptedCitizen> {
 		});
 	}
 
-	public ScriptedCitizen setScript(String scriptName) {
-		if (scriptName == null || scriptName.isEmpty()) {
-			return this;
-		}
-		this.script = ScriptLoader.loadScript(plugin, scriptName);
+	public ScriptedCitizen setScript(ScriptFile script) {
+		this.script = script;
 		return this;
+	}
+
+	public ScriptFile getScript() {
+		return script;
 	}
 
 	@Override
@@ -109,7 +109,9 @@ public class ScriptedCitizen extends Citizen<ScriptedCitizen> {
 
 	private void addSayAction(ScriptAction action) {
 		submitAction(action, () -> {
-			say(action.message);
+			plugin.clientThread.invoke(() -> {
+				say(action.message);
+			});
 			setWait(action.secondsTilNextAction);
 		});
 	}
@@ -124,7 +126,7 @@ public class ScriptedCitizen extends Citizen<ScriptedCitizen> {
 			});
 			while (!getWorldLocation().equals(action.targetPosition) ||
 				getAnimationID() != idleAnimationId.getId() ||
-				WorldPoint.fromLocal(plugin.client, getLocalLocation()).distanceTo2D(getWorldLocation()) > 0) {
+				getTileLocation().distanceTo2D(getWorldLocation()) > 0) {
 				sleep();
 			}
 
@@ -134,11 +136,16 @@ public class ScriptedCitizen extends Citizen<ScriptedCitizen> {
 
 	private void addRotateAction(ScriptAction action) {
 		submitAction(action, () -> {
-			rlObject.setOrientation(action.targetRotation.getAngle());
+			int angle = action.targetRotation.getAngle();
+			plugin.clientThread.invoke(() -> {
+				setOrientation(angle);
+			});
 			sleep(50);
-			while (rlObject.getOrientation() != action.targetRotation.getAngle()) {
+			while (getOrientation() != angle) {
 				sleep();
-				rlObject.setOrientation(action.targetRotation.getAngle());
+				plugin.clientThread.invoke(() -> {
+					setOrientation(angle);
+				});
 			}
 			setWait(action.secondsTilNextAction);
 		});
@@ -161,14 +168,18 @@ public class ScriptedCitizen extends Citizen<ScriptedCitizen> {
 			AnimData animData = Util.getAnimData(action.animationId.getId());
 			int loopCount = action.timesToLoop == null ? 1 : action.timesToLoop;
 			for (int i = 0; i < loopCount; i++) {
-				setAnimation(action.animationId.getId());
+				plugin.clientThread.invoke(() -> {
+					setAnimation(action.animationId.getId());
+				});
 				try {
 					Thread.sleep(animData.realDurationMillis);
 				} catch (InterruptedException e) {
 					// Ignored, because this happens if the citizen despawns.
 				}
 			}
-			setAnimation(idleAnimationId.getId());
+			plugin.clientThread.invoke(() -> {
+				setAnimation(idleAnimationId.getId());
+			});
 			setWait(action.secondsTilNextAction);
 		});
 	}

@@ -1,15 +1,12 @@
 package com.magnaboy;
 
 import com.google.gson.Gson;
+import com.google.inject.Binder;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 import javax.inject.Inject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +16,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.MenuAction;
 import net.runelite.api.Point;
 import net.runelite.api.Tile;
+import net.runelite.api.WorldView;
 import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -44,7 +42,6 @@ import net.runelite.client.util.ImageUtil;
 @Slf4j
 @PluginDescriptor(name = "Citizens", description = "Adds citizens to help bring life to the world")
 public class CitizensPlugin extends Plugin {
-	public static HashMap<Integer, CitizenRegion> activeRegions = new HashMap<>();
 	public static boolean shuttingDown;
 	@Inject
 	public Client client;
@@ -66,6 +63,8 @@ public class CitizensPlugin extends Plugin {
 	@Inject
 	private CitizensOverlay citizensOverlay;
 	@Inject
+	private CitizenRegistry registry;
+	@Inject
 	private ClientToolbar clientToolbar;
 	private NavigationButton navButton;
 
@@ -74,14 +73,17 @@ public class CitizensPlugin extends Plugin {
 		return configManager.getConfig(CitizensConfig.class);
 	}
 
+	@Override
+	public void configure(Binder binder) {
+		binder.bind(CitizenRegistry.class);
+	}
+
 	public boolean isReady() {
 		return entitiesAreReady && client.getLocalPlayer() != null;
 	}
 
 	@Override
 	protected void startUp() {
-		CitizenRegion.init(this);
-
 		panel = injector.getInstance(CitizenPanel.class);
 		panel.init(this, citizensOverlay);
 		overlayManager.add(citizensOverlay);
@@ -99,16 +101,29 @@ public class CitizensPlugin extends Plugin {
 			clientToolbar.addNavigation(navButton);
 		}
 
-		if (isReady()) {
-			checkRegions();
-		}
-		CitizenRegion.updateAllEntities();
+		// Runs after any cleanup task queued by a preceding shutDown(): invokeLater tasks run in FIFO order
+		clientThread.invokeLater(() -> {
+			if (isReady()) {
+				checkRegions();
+			}
+			registry.updateAllEntities();
+		});
 		Util.initAnimationData(this);
 	}
 
 	@Override
 	protected void shutDown() {
-		cleanupAll();
+		overlayManager.remove(citizensOverlay);
+		clientThread.invokeLater(() -> {
+			shuttingDown = true;
+			// Despawn every entity before anything is cleared, so that every RuneLiteObject leaves the scene
+			registry.cleanUp();
+			shuttingDown = false;
+		});
+		if (IS_DEVELOPMENT) {
+			panel.cleanup();
+			panel.update();
+		}
 		if (navButton != null) {
 			clientToolbar.removeNavigation(navButton);
 		}
@@ -119,10 +134,11 @@ public class CitizensPlugin extends Plugin {
 		startUp();
 	}
 
+	/**
+	 * Client thread only.
+	 */
 	protected void despawnAll() {
-		for (CitizenRegion r : activeRegions.values()) {
-			CitizenRegion.forEachActiveEntity((Entity::despawn));
-		}
+		registry.forEachActiveEntity(Entity::despawn);
 	}
 
 	@Subscribe
@@ -135,7 +151,7 @@ public class CitizensPlugin extends Plugin {
 
 		if (newState == GameState.LOADING) {
 			despawnAll();
-			CitizenRegion.updateAllEntities();
+			registry.updateAllEntities();
 		}
 	}
 
@@ -145,35 +161,37 @@ public class CitizensPlugin extends Plugin {
 		asynchronous = true
 	)
 	public void citizenBehaviourTick() {
-		if (!isReady()) {
-			return;
-		}
+		clientThread.invoke(() -> {
+			if (!isReady()) {
+				return;
+			}
 
-		for (CitizenRegion r : activeRegions.values()) {
-			r.runOncePerTimePeriod(10, 3, entity -> {
-				if (entity instanceof WanderingCitizen && entity.isActive()) {
-					((WanderingCitizen) entity).wander();
-				}
-			});
+			for (CitizenRegion r : registry.getRegions()) {
+				r.runOncePerTimePeriod(10, 3, clientThread, entity -> {
+					if (entity instanceof WanderingCitizen && entity.isActive()) {
+						((WanderingCitizen) entity).wander();
+					}
+				});
 
-			r.runOncePerTimePeriod(60, 3, entity -> {
-				if (entity.isActive() && entity.isCitizen() && entity.distanceToPlayer() < 15) {
-					((Citizen) entity).sayRandomRemark();
-				}
-			});
-		}
+				r.runOncePerTimePeriod(60, 3, clientThread, entity -> {
+					if (entity.isActive() && entity.isCitizen() && entity.distanceToPlayer() < 15) {
+						((Citizen) entity).sayRandomRemark();
+					}
+				});
+			}
 
-		panel.update();
+			panel.update();
+		});
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick tick) {
-		CitizenRegion.updateAllEntities();
+		registry.updateAllEntities();
 	}
 
 	@Subscribe
 	public void onClientTick(ClientTick ignored) {
-		CitizenRegion.forEachActiveEntity((entity) -> {
+		registry.forEachActiveEntity((entity) -> {
 			if (entity.isCitizen()) {
 				((Citizen) entity).onClientTick();
 			}
@@ -186,7 +204,7 @@ public class CitizensPlugin extends Plugin {
 
 		Point mousePos = client.getMouseCanvasPosition();
 		final AtomicBoolean[] clickedCitizen = {new AtomicBoolean(false)};
-		CitizenRegion.forEachActiveEntity(entity -> {
+		registry.forEachActiveEntity(entity -> {
 			if (entity.entityType == EntityType.Scenery && !IS_DEVELOPMENT) {
 				return;
 			}
@@ -236,22 +254,25 @@ public class CitizensPlugin extends Plugin {
 
 		if (IS_DEVELOPMENT) {
 			// Tile Selection
-			final Tile selectedSceneTile = client.getSelectedSceneTile();
-			final boolean same = CitizenPanel.selectedPosition != null && CitizenPanel.selectedPosition.equals(selectedSceneTile.getWorldLocation());
-			final String action = same ? "Deselect" : "Select";
-			client.createMenuEntry(firstMenuIndex[0]++)
-				.setOption(ColorUtil.wrapWithColorTag("Citizen Editor", Color.cyan))
-				.setTarget(action + " <col=fffe00>Tile</col>")
-				.setType(MenuAction.RUNELITE)
-				.setDeprioritized(true)
-				.onClick(e -> {
-					if (same) {
-						CitizenPanel.selectedPosition = null;
-					} else {
-						CitizenPanel.selectedPosition = selectedSceneTile.getWorldLocation();
-					}
-					panel.update();
-				});
+			final WorldView wv = client.getTopLevelWorldView();
+			final Tile selectedSceneTile = wv == null ? null : wv.getSelectedSceneTile();
+			if (selectedSceneTile != null) {
+				final boolean same = CitizenPanel.selectedPosition != null && CitizenPanel.selectedPosition.equals(selectedSceneTile.getWorldLocation());
+				final String action = same ? "Deselect" : "Select";
+				client.createMenuEntry(firstMenuIndex[0]++)
+					.setOption(ColorUtil.wrapWithColorTag("Citizen Editor", Color.cyan))
+					.setTarget(action + " <col=fffe00>Tile</col>")
+					.setType(MenuAction.RUNELITE)
+					.setDeprioritized(true)
+					.onClick(e -> {
+						if (same) {
+							CitizenPanel.selectedPosition = null;
+						} else {
+							CitizenPanel.selectedPosition = selectedSceneTile.getWorldLocation();
+						}
+						panel.update();
+					});
+			}
 			// Entity Deselect (from anywhere)
 			if (CitizenPanel.selectedEntity != null && !clickedCitizen[0].get()) {
 				String name = "Scenery Object";
@@ -276,7 +297,7 @@ public class CitizensPlugin extends Plugin {
 		if (!event.getMenuOption().equals("Examine")) {
 			return;
 		}
-		CitizenRegion.forEachActiveEntity((entity) -> {
+		registry.forEachActiveEntity((entity) -> {
 			if (event.getMenuTarget().equals("<col=fffe00>" + entity.name + "</col>")) {
 				event.consume();
 				String chatMessage = new ChatMessageBuilder()
@@ -291,30 +312,19 @@ public class CitizensPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * Client thread only.
+	 */
 	private void checkRegions() {
-		List<Integer> loaded = Arrays.stream(client.getMapRegions()).boxed().collect(Collectors.toList());
-		// Check for newly loaded regions
+		WorldView wv = client.getTopLevelWorldView();
+		int[] loaded = wv == null ? null : wv.getMapRegions();
+		if (loaded == null) {
+			return;
+		}
+		// Load newly loaded regions; regions already in the registry are kept as they are
 		for (int i : loaded) {
-			if (!activeRegions.containsKey(i)) {
-				CitizenRegion region = CitizenRegion.loadRegion(i);
-				if (region != null) {
-					activeRegions.put(i, region);
-				}
-			}
+			registry.loadRegion(i);
 		}
 		entitiesAreReady = true;
-	}
-
-	private void cleanupAll() {
-		shuttingDown = true;
-		activeRegions.clear();
-		despawnAll();
-		overlayManager.remove(citizensOverlay);
-		CitizenRegion.cleanUp();
-		if (IS_DEVELOPMENT) {
-			panel.cleanup();
-			panel.update();
-		}
-		shuttingDown = false;
 	}
 }
