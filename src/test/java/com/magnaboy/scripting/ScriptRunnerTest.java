@@ -177,17 +177,51 @@ public class ScriptRunnerTest {
 	}
 
 	/**
-	 * Ticks until the runner moves to another action index, and returns how many ticks that took.
+	 * Ticks until the runner starts another action (possibly the same one again, when a one-action script wraps),
+	 * and returns how many ticks that took.
 	 */
 	private int ticksUntilNextAction() {
 		int index = runner.getActionIndex();
+		int starts = runner.getActionStarts();
 		for (int ticks = 1; ticks <= 100_000; ticks++) {
 			runner.tick();
-			if (runner.getActionIndex() != index) {
+			if (runner.getActionStarts() != starts) {
 				return ticks;
 			}
 		}
 		throw new AssertionError("Stuck in action " + index + " in state " + runner.getState());
+	}
+
+	/**
+	 * Drives {@link #runner} from its start until it wraps from the last action to the first one. Returns null when
+	 * it visited every action and wrapped, otherwise what went wrong.
+	 */
+	private String runUntilWrapped(int actionCount, int maxTicks) {
+		TreeSet<Integer> visited = new TreeSet<>();
+		boolean wrapped = false;
+		int previous = ScriptRunner.BASE_WALK;
+		int starts = runner.getActionStarts();
+		int ticks = 0;
+		while (!wrapped && ticks < maxTicks) {
+			runner.tick();
+			ticks++;
+			if (runner.getActionStarts() != starts) {
+				starts = runner.getActionStarts();
+				int index = runner.getActionIndex();
+				if (index == ScriptRunner.BASE_WALK) {
+					continue;
+				}
+				visited.add(index);
+				wrapped = previous == actionCount - 1 && index == 0;
+				previous = index;
+			}
+		}
+
+		if (wrapped && visited.size() == actionCount) {
+			return null;
+		}
+		return "visited " + visited + " of " + actionCount + " actions, wrapped " + wrapped + ", stopped in "
+			+ runner.getState() + " at index " + runner.getActionIndex() + " after " + ticks + " ticks";
 	}
 
 	/**
@@ -406,6 +440,20 @@ public class ScriptRunnerTest {
 	}
 
 	@Test
+	public void oneActionScriptWrapsToItself() {
+		host.script = script(say("again"));
+		Assert.assertNull(runUntilWrapped(1, 1000));
+		Assert.assertEquals(0, runner.getActionIndex());
+
+		// Each further start of the same action is seen, 5 ticks apart, and the base walk does not come back
+		Assert.assertEquals(5, ticksUntilNextAction());
+		Assert.assertEquals(5, ticksUntilNextAction());
+		Assert.assertEquals(0, runner.getActionIndex());
+		Assert.assertEquals(1, host.calls.stream().filter(c -> c.startsWith("walk")).count());
+		Assert.assertEquals(4, host.calls.stream().filter(c -> c.equals("say again")).count());
+	}
+
+	@Test
 	public void missingOrEmptyScriptDoesNothing() {
 		ScriptFile noActions = new ScriptFile();
 		for (ScriptFile script : Arrays.asList(null, script(), noActions)) {
@@ -475,25 +523,9 @@ public class ScriptRunnerTest {
 			host.location = new WorldPoint(firstTarget.getX() + 5, firstTarget.getY(), firstTarget.getPlane());
 			runner = new ScriptRunner(host);
 
-			TreeSet<Integer> visited = new TreeSet<>();
-			boolean wrapped = false;
-			int previous = ScriptRunner.BASE_WALK;
-			int ticks = 0;
-			while (!wrapped && ticks < 200_000) {
-				runner.tick();
-				ticks++;
-				int index = runner.getActionIndex();
-				if (index != previous) {
-					visited.add(index);
-					wrapped = previous == actionCount - 1 && index == 0;
-					previous = index;
-				}
-			}
-
-			if (!wrapped || visited.size() != actionCount) {
-				failures.add(name + ": visited " + visited + " of " + actionCount + " actions, wrapped " + wrapped
-					+ ", stopped in " + runner.getState() + " at index " + runner.getActionIndex() + " after "
-					+ ticks + " ticks");
+			String failure = runUntilWrapped(actionCount, 200_000);
+			if (failure != null) {
+				failures.add(name + ": " + failure);
 			}
 		}
 

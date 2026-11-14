@@ -107,7 +107,8 @@ public class ScriptedCitizen extends Citizen<ScriptedCitizen> implements ScriptH
 	public boolean beginWalk(WorldPoint target, Integer orientation) {
 		moveTo(target, orientation, false, false);
 		if (getCurrentTarget() == null) {
-			log.debug("{} cannot walk to {}: it is not in the scene on the citizen's plane", debugName(), target);
+			log.debug("{} cannot walk to {}: it is not in the loaded scene on the plane being viewed", debugName(),
+				target);
 			return false;
 		}
 		return true;

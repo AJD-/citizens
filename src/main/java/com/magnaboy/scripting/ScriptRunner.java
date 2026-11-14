@@ -53,6 +53,11 @@ public final class ScriptRunner {
 	 * gives up on the animation.
 	 */
 	private int ticksRemaining;
+	/**
+	 * How many actions have started, the base walk included. Lets tests see a new start even when the index does not
+	 * change (a one-action script wrapping to itself).
+	 */
+	private int actionStarts;
 
 	public ScriptRunner(ScriptHost host) {
 		this.host = host;
@@ -102,6 +107,10 @@ public final class ScriptRunner {
 		return actionIndex;
 	}
 
+	int getActionStarts() {
+		return actionStarts;
+	}
+
 	public void tick() {
 		switch (state) {
 			case START:
@@ -123,8 +132,9 @@ public final class ScriptRunner {
 				if (host.isAnimationFinished()) {
 					startWait(waitTicks(currentAction));
 				} else if (--ticksRemaining <= 0) {
-					log.debug("Animation {} in script {} did not finish in time; returning to idle",
-						currentAction.animationId, host.getScript().name);
+					ScriptFile script = host.getScript();
+					log.debug("Animation {} in script {} at base {} did not finish in time; returning to idle",
+						currentAction.animationId, script == null ? null : script.name, host.getBaseLocation());
 					host.playIdleAnimation();
 					startWait(waitTicks(currentAction));
 				}
@@ -156,6 +166,7 @@ public final class ScriptRunner {
 	 * Starts an action. One that is missing what it needs (a malformed script entry) only waits.
 	 */
 	private void startAction(ScriptAction action) {
+		actionStarts++;
 		currentAction = action;
 		if (action == null || action.action == null) {
 			startWait(waitTicks(action));
