@@ -30,8 +30,7 @@ import net.runelite.api.model.Jarvis;
  * <p>
  * Concurrency: constructors make no client calls. The RuneLiteObject is created lazily on the client thread at the
  * first successful {@link #spawn()}, and every method that touches it or the client runs on the client thread.
- * {@link #isActive()}, {@link #getAnimationID()}, {@link #getOrientation()} and {@link #getTileLocation()} read
- * plain fields and may be called from any thread.
+ * {@link #isActive()} and {@link #getAnimationID()} read plain fields and may be called from any thread.
  */
 @Slf4j
 public class Entity<T extends Entity<T>> {
@@ -147,10 +146,6 @@ public class Entity<T extends Entity<T>> {
 		return rlObject.getLocation();
 	}
 
-	public int getOrientation() {
-		return orientation;
-	}
-
 	/**
 	 * Client thread only. Does nothing before the object exists.
 	 */
@@ -198,13 +193,6 @@ public class Entity<T extends Entity<T>> {
 	public T setWorldLocation(WorldPoint location) {
 		this.worldLocation = location;
 		return (T) this;
-	}
-
-	/**
-	 * The tile the entity is on. Unlike {@link Citizen#getWorldLocation()} this ignores any walk target.
-	 */
-	public WorldPoint getTileLocation() {
-		return worldLocation;
 	}
 
 	public T setObjectToRemove(Integer objectToRemove) {

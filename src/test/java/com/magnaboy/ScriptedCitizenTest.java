@@ -7,6 +7,7 @@ import net.runelite.api.Animation;
 import net.runelite.api.AnimationController;
 import net.runelite.api.Client;
 import net.runelite.api.RuneLiteObject;
+import net.runelite.api.coords.WorldPoint;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -128,13 +129,25 @@ public class ScriptedCitizenTest {
 	}
 
 	@Test
-	public void despawnRestartsTheScript() {
-		citizen.beginAnimation(ANIMATION_ID, 2);
+	public void despawnClearsTheScriptState() {
+		citizen.beginAnimation(ANIMATION_ID, 1);
+		AnimationController controller = installedController();
+		for (int i = 0; i < 7; i++) {
+			controller.tick(1);
+		}
+		Assert.assertTrue(citizen.isAnimationFinished());
 		citizen.currentAction = new ScriptAction();
 
 		citizen.despawn();
 
 		Assert.assertNull(citizen.currentAction);
 		Assert.assertFalse(citizen.isAnimationFinished());
+	}
+
+	@Test
+	public void walkOutsideTheSceneQueuesNothing() {
+		// The mocked client has no world view, so no target can be placed
+		Assert.assertFalse(citizen.beginWalk(new WorldPoint(3200, 3200, 0), null));
+		Assert.assertFalse(citizen.isWalking());
 	}
 }
