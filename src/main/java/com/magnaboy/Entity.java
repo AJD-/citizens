@@ -11,14 +11,11 @@ import net.runelite.api.AABB;
 import net.runelite.api.Animation;
 import net.runelite.api.AnimationController;
 import net.runelite.api.Client;
-import net.runelite.api.GameObject;
 import net.runelite.api.Model;
 import net.runelite.api.ModelData;
 import net.runelite.api.Perspective;
 import net.runelite.api.Player;
 import net.runelite.api.RuneLiteObject;
-import net.runelite.api.Scene;
-import net.runelite.api.Tile;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
@@ -61,7 +58,6 @@ public class Entity<T extends Entity<T>> {
 	private int[] modelIDs;
 	private int[] recolorsToFind;
 	private int[] recolorsToReplace;
-	private Integer objectToRemove;
 
 	// Mirrors of the object's state, kept so that they can be read before the object exists
 	private boolean active;
@@ -200,11 +196,6 @@ public class Entity<T extends Entity<T>> {
 
 	public T setWorldLocation(WorldPoint location) {
 		this.worldLocation = location;
-		return self();
-	}
-
-	public T setObjectToRemove(Integer objectToRemove) {
-		this.objectToRemove = objectToRemove;
 		return self();
 	}
 
@@ -443,9 +434,6 @@ public class Entity<T extends Entity<T>> {
 		}
 
 		setLocation(initialLocation);
-		if (objectToRemove != null) {
-			removeOtherObjects(wv);
-		}
 
 		if (baseOrientation != null && orientation == 0) {
 			setOrientation(baseOrientation);
@@ -533,30 +521,5 @@ public class Entity<T extends Entity<T>> {
 	@Override
 	public int hashCode() {
 		return Objects.hash(uuid);
-	}
-
-	private void removeOtherObjects(WorldView wv) {
-		Scene scene = wv.getScene();
-		Tile[][] tiles = scene.getTiles()[wv.getPlane()];
-
-		LocalPoint lp = LocalPoint.fromWorld(wv, worldLocation);
-		if (lp == null) {
-			return;
-		}
-		Tile tile = tiles[lp.getSceneX()][lp.getSceneY()];
-		if (tile == null) {
-			return;
-		}
-
-		for (GameObject gameObject : tile.getGameObjects()) {
-			if (gameObject == null) {
-				continue;
-			}
-			if (gameObject.getId() == objectToRemove) {
-				// Currently it's not possible to re-add the Game Object outside of an area load
-				scene.removeGameObject(gameObject);
-			}
-		}
-
 	}
 }

@@ -346,7 +346,6 @@ public class CitizensDevPlugin extends Plugin {
 	 * The form has no fields for these, so an update keeps the stored values.
 	 */
 	private static void keepFieldsTheFormDoesNotEdit(EntityInfo stored, EntityInfo edited) {
-		edited.removedObject = stored.removedObject;
 		edited.mergedObjects = stored.mergedObjects;
 		if (stored instanceof CitizenInfo && edited instanceof CitizenInfo) {
 			((CitizenInfo) edited).startScript = ((CitizenInfo) stored).startScript;

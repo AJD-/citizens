@@ -433,6 +433,21 @@ public class DataIntegrityTest {
 		});
 	}
 
+	// The plugin only adds to the scene: it no longer hides real game objects, so the old key must not come back
+	@Test
+	public void noEntryHidesAGameObject() {
+		checkAllRegions("Hidden game objects", (region, failures) -> {
+			List<JsonObject> raws = new ArrayList<>(region.rawCitizens());
+			raws.addAll(region.rawScenery());
+			for (JsonObject raw : raws) {
+				if (raw.has("removedObject")) {
+					String uuid = raw.has("uuid") ? raw.get("uuid").getAsString() : "?";
+					failures.add(region.fileName + " [" + uuid + "]: has a removedObject key");
+				}
+			}
+		});
+	}
+
 	// Invariant 16 (scope: citizens' modelIds only, as scripts/validate.js did)
 	@Test
 	public void citizenModelIdsAreValidNpcModels() throws IOException {

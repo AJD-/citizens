@@ -19,6 +19,5 @@ public class EntityInfo {
 	public int[] modelRecolorFind = {};
 	public int[] modelRecolorReplace = {};
 	public AnimationID idleAnimation;
-	public Integer removedObject;
 	public List<MergedObject> mergedObjects;
 }

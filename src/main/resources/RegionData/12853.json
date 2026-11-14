@@ -610,14 +610,7 @@
                 10308,
                 10279
             ],
-            "idleAnimation": "Sitting",
-            "removedObject": 3632,
-            "mergedObjects": [
-                {
-                    "objectID": 7719,
-                    "count90CCWRotations": 2
-                }
-            ]
+            "idleAnimation": "Sitting"
         },
         {
             "name": "Morten",

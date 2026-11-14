@@ -61,7 +61,6 @@ public class CitizenRegistry {
 
 		// Entity
 		citizen.setModelIDs(info.modelIds)
-			.setObjectToRemove(info.removedObject)
 			.setModelRecolors(info.modelRecolorFind, info.modelRecolorReplace)
 			.setIdleAnimation(info.idleAnimation)
 			.setScale(info.scale)

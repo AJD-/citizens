@@ -15,8 +15,6 @@ Citizens appear in a few towns. They wander around, say things now and then, and
 citizen and choose Examine to read its examine text. Nothing else about a citizen is clickable, and citizens do not affect
 gameplay.
 
-Two bundled entries hide a real scenery object, so that a citizen can stand in its place.
-
 # Building and running
 
 You need JDK 11.
@@ -72,7 +70,7 @@ Two things to know:
 - Save rewrites the whole region file with the editor's own formatting, so review the diff before you commit.
 - The Reload button ("Reload All Entities") discards unsaved edits. It needs you to be logged in.
 
-Fields the form has no control for (scripts, hidden objects, merged objects) are kept as they are when you update an
+Fields the form has no control for (scripts, merged objects) are kept as they are when you update an
 entity. To change a script, edit its JSON file by hand.
 
 # Data checks
