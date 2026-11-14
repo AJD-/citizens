@@ -101,10 +101,6 @@ public class CitizensOverlay extends Overlay {
 
 	@Override
 	public Dimension render(Graphics2D graphics) {
-		if (CitizensPlugin.shuttingDown) {
-			return null;
-		}
-
 		WorldView wv = plugin.client.getTopLevelWorldView();
 		if (wv == null) {
 			return null;

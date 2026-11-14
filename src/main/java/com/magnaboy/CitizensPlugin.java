@@ -6,6 +6,8 @@ import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import lombok.Getter;
@@ -22,6 +24,8 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.api.events.WorldViewLoaded;
+import net.runelite.api.events.WorldViewUnloaded;
 import net.runelite.api.geometry.SimplePolygon;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatColorType;
@@ -42,7 +46,6 @@ import net.runelite.client.util.ImageUtil;
 @Slf4j
 @PluginDescriptor(name = "Citizens", description = "Adds citizens to help bring life to the world")
 public class CitizensPlugin extends Plugin {
-	public static boolean shuttingDown;
 	@Inject
 	public Client client;
 	@Inject
@@ -50,7 +53,6 @@ public class CitizensPlugin extends Plugin {
 	public CitizenPanel panel;
 
 	public boolean IS_DEVELOPMENT = false;
-	public boolean entitiesAreReady = false;
 	@Inject
 	public Gson gson;
 	@Inject
@@ -78,10 +80,6 @@ public class CitizensPlugin extends Plugin {
 		binder.bind(CitizenRegistry.class);
 	}
 
-	public boolean isReady() {
-		return entitiesAreReady && client.getLocalPlayer() != null;
-	}
-
 	@Override
 	protected void startUp() {
 		panel = injector.getInstance(CitizenPanel.class);
@@ -101,25 +99,19 @@ public class CitizensPlugin extends Plugin {
 			clientToolbar.addNavigation(navButton);
 		}
 
-		// Runs after any cleanup task queued by a preceding shutDown(): invokeLater tasks run in FIFO order
-		clientThread.invokeLater(() -> {
-			if (isReady()) {
-				checkRegions();
-			}
-			registry.updateAllEntities();
-		});
+		// Before the hand-off below: scripted citizens can start their routine as soon as reconcile spawns them
 		Util.initAnimationData(this);
+
+		// Shows citizens straight away when enabled while logged in. Runs after any cleanup task queued by a
+		// preceding shutDown(): invokeLater tasks run in FIFO order.
+		clientThread.invokeLater(this::reconcile);
 	}
 
 	@Override
 	protected void shutDown() {
 		overlayManager.remove(citizensOverlay);
-		clientThread.invokeLater(() -> {
-			shuttingDown = true;
-			// Despawn every entity before anything is cleared, so that every RuneLiteObject leaves the scene
-			registry.cleanUp();
-			shuttingDown = false;
-		});
+		// Despawn every entity before anything is cleared, so that every RuneLiteObject leaves the scene
+		clientThread.invokeLater(registry::cleanUp);
 		if (IS_DEVELOPMENT) {
 			panel.cleanup();
 			panel.update();
@@ -135,23 +127,74 @@ public class CitizensPlugin extends Plugin {
 	}
 
 	/**
-	 * Client thread only.
+	 * Client thread only. Brings the registry in line with the current scene: unloads regions that left the loaded
+	 * map, loads the ones that entered it, then spawns or despawns every entity. Does nothing unless logged in with
+	 * a top-level world view and a local player. In an instance every region is unloaded. Idempotent.
 	 */
-	protected void despawnAll() {
-		registry.forEachActiveEntity(Entity::despawn);
+	void reconcile() {
+		assert client.isClientThread();
+
+		if (client.getGameState() != GameState.LOGGED_IN) {
+			return;
+		}
+		WorldView wv = client.getTopLevelWorldView();
+		if (wv == null || client.getLocalPlayer() == null) {
+			return;
+		}
+
+		registry.syncRegions(loadedRegionIds(wv));
+		registry.updateAllEntities();
+	}
+
+	/**
+	 * The region ids citizens may be loaded for: the scene's map regions, or none in an instance (instances reuse
+	 * the region ids of the areas they copy).
+	 */
+	private static Set<Integer> loadedRegionIds(WorldView wv) {
+		Set<Integer> ids = new HashSet<>();
+		if (wv.isInstance()) {
+			return ids;
+		}
+		int[] mapRegions = wv.getMapRegions();
+		if (mapRegions != null) {
+			for (int regionId : mapRegions) {
+				ids.add(regionId);
+			}
+		}
+		return ids;
 	}
 
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged gameStateChanged) {
-		GameState newState = gameStateChanged.getGameState();
-
-		if (newState == GameState.LOGGED_IN) {
-			checkRegions();
+		switch (gameStateChanged.getGameState()) {
+			case LOADING:
+				// Scene-local coordinates are about to change. Keep the regions, spawn nothing until LOGGED_IN.
+				registry.despawnAll();
+				break;
+			case LOGGED_IN:
+				reconcile();
+				break;
+			case HOPPING:
+			case LOGIN_SCREEN:
+			case CONNECTION_LOST:
+				registry.unloadAll();
+				break;
+			default:
+				break;
 		}
+	}
 
-		if (newState == GameState.LOADING) {
-			despawnAll();
-			registry.updateAllEntities();
+	@Subscribe
+	public void onWorldViewUnloaded(WorldViewUnloaded event) {
+		if (event.getWorldView().isTopLevel()) {
+			registry.despawnAll();
+		}
+	}
+
+	@Subscribe
+	public void onWorldViewLoaded(WorldViewLoaded event) {
+		if (event.getWorldView().isTopLevel()) {
+			reconcile();
 		}
 	}
 
@@ -162,7 +205,7 @@ public class CitizensPlugin extends Plugin {
 	)
 	public void citizenBehaviourTick() {
 		clientThread.invoke(() -> {
-			if (!isReady()) {
+			if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null) {
 				return;
 			}
 
@@ -186,13 +229,27 @@ public class CitizensPlugin extends Plugin {
 
 	@Subscribe
 	public void onGameTick(GameTick tick) {
+		if (client.getGameState() != GameState.LOGGED_IN) {
+			return;
+		}
+		WorldView wv = client.getTopLevelWorldView();
+		if (wv == null) {
+			return;
+		}
+		if (!registry.isSyncedWith(loadedRegionIds(wv))) {
+			// Safety net: the scene changed without an event that reconciled it, so every object's scene-local
+			// position is stale. Take them all down before reconciling, as LOADING would have.
+			registry.despawnAll();
+			reconcile();
+			return;
+		}
 		registry.updateAllEntities();
 	}
 
 	@Subscribe
 	public void onClientTick(ClientTick ignored) {
 		registry.forEachActiveEntity((entity) -> {
-			if (entity.isCitizen()) {
+			if (entity.isActive() && entity.isCitizen()) {
 				((Citizen) entity).onClientTick();
 			}
 		});
@@ -310,21 +367,5 @@ public class CitizensPlugin extends Plugin {
 					.timestamp((int) (System.currentTimeMillis() / 1000)).build());
 			}
 		});
-	}
-
-	/**
-	 * Client thread only.
-	 */
-	private void checkRegions() {
-		WorldView wv = client.getTopLevelWorldView();
-		int[] loaded = wv == null ? null : wv.getMapRegions();
-		if (loaded == null) {
-			return;
-		}
-		// Load newly loaded regions; regions already in the registry are kept as they are
-		for (int i : loaded) {
-			registry.loadRegion(i);
-		}
-		entitiesAreReady = true;
 	}
 }
