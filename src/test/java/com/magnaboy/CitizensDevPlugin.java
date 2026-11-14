@@ -116,8 +116,10 @@ public class CitizensDevPlugin extends Plugin {
 	@Override
 	protected void shutDown() {
 		overlayManager.remove(overlay);
-		clientToolbar.removeNavigation(navButton);
-		navButton = null;
+		if (navButton != null) {
+			clientToolbar.removeNavigation(navButton);
+			navButton = null;
+		}
 		panel = null;
 		clientThread.invokeLater(() -> {
 			selectedEntity = null;
