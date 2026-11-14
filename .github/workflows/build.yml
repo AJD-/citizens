@@ -23,3 +23,6 @@ jobs:
 
       - name: Build
         run: ./gradlew build
+
+      - name: Build cache-diff maintainer tool
+        run: ./gradlew -p tools/cache-diff build
