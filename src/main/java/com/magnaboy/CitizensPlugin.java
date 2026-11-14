@@ -5,11 +5,12 @@ import com.google.inject.Binder;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
-import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
+import javax.swing.SwingUtilities;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -36,7 +37,6 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.task.Schedule;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -46,6 +46,9 @@ import net.runelite.client.util.ImageUtil;
 @Slf4j
 @PluginDescriptor(name = "Citizens", description = "Adds citizens to help bring life to the world")
 public class CitizensPlugin extends Plugin {
+	private static final int REMARK_DISTANCE = 15;
+	private static final int DEV_PANEL_REFRESH_TICKS = 5;
+
 	@Inject
 	public Client client;
 	@Inject
@@ -69,6 +72,14 @@ public class CitizensPlugin extends Plugin {
 	@Inject
 	private ClientToolbar clientToolbar;
 	private NavigationButton navButton;
+	/**
+	 * Drives the remark and wander rolls. Only used on the client thread.
+	 */
+	private final Random random = new Random();
+	/**
+	 * Game ticks seen since the plugin was created; the clock for the wander cooldown.
+	 */
+	private int gameTick;
 
 	@Provides
 	CitizensConfig getConfig(ConfigManager configManager) {
@@ -200,37 +211,9 @@ public class CitizensPlugin extends Plugin {
 		}
 	}
 
-	@Schedule(
-		period = 3,
-		unit = ChronoUnit.SECONDS,
-		asynchronous = true
-	)
-	public void citizenBehaviourTick() {
-		clientThread.invoke(() -> {
-			if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null) {
-				return;
-			}
-
-			for (CitizenRegion r : registry.getRegions()) {
-				r.runOncePerTimePeriod(10, 3, clientThread, entity -> {
-					if (entity instanceof WanderingCitizen && entity.isActive()) {
-						((WanderingCitizen) entity).wander();
-					}
-				});
-
-				r.runOncePerTimePeriod(60, 3, clientThread, entity -> {
-					if (entity.isActive() && entity.isCitizen() && entity.distanceToPlayer() < 15) {
-						((Citizen) entity).sayRandomRemark();
-					}
-				});
-			}
-
-			panel.update();
-		});
-	}
-
 	@Subscribe
 	public void onGameTick(GameTick tick) {
+		gameTick++;
 		if (client.getGameState() != GameState.LOGGED_IN) {
 			return;
 		}
@@ -246,6 +229,37 @@ public class CitizensPlugin extends Plugin {
 			return;
 		}
 		registry.updateAllEntities();
+		rollIdleBehaviour();
+
+		if (IS_DEVELOPMENT && gameTick % DEV_PANEL_REFRESH_TICKS == 0) {
+			SwingUtilities.invokeLater(panel::update);
+		}
+	}
+
+	/**
+	 * Client thread only. Once per game tick, after the spawn/despawn pass: gives each spawned citizen its chance to
+	 * make a remark and each wandering citizen its chance to start a wander.
+	 */
+	private void rollIdleBehaviour() {
+		registry.forEachActiveEntity(entity -> {
+			if (!entity.isActive() || !entity.isCitizen()) {
+				return;
+			}
+			Citizen citizen = (Citizen) entity;
+
+			if (citizen instanceof WanderingCitizen) {
+				WanderingCitizen wanderer = (WanderingCitizen) citizen;
+				if (wanderer.getCurrentTarget() == null
+					&& BehaviourRolls.rollWander(gameTick, wanderer.getLastWanderTick(), random)) {
+					wanderer.wander(gameTick);
+				}
+			}
+
+			if (citizen.remarks != null && citizen.remarks.length > 0 && citizen.activeRemark == null
+				&& citizen.distanceToPlayer() < REMARK_DISTANCE && BehaviourRolls.rollRemark(random)) {
+				citizen.sayRandomRemark();
+			}
+		});
 	}
 
 	@Subscribe

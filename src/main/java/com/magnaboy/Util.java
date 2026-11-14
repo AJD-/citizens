@@ -8,7 +8,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.lang.reflect.Type;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Random;
 import net.runelite.api.Perspective;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
@@ -16,6 +16,8 @@ import net.runelite.api.coords.WorldPoint;
 public final class Util {
 	public final static int JAU_FULL_ROTATION = 2048;
 	public final static int MAX_ENTITY_RENDER_DISTANCE = 25;
+	// For picking spawn and wander positions and remark text; the behaviour rolls use the plugin's own Random
+	private static final Random RANDOM = new Random();
 	private static Map<String, AnimData> animData;
 
 	public static void initAnimationData(CitizensPlugin plugin) {
@@ -33,16 +35,16 @@ public final class Util {
 		if (min == max) {
 			return min;
 		}
-		return ThreadLocalRandom.current().nextInt((max - min) + 1) + min;
+		return RANDOM.nextInt((max - min) + 1) + min;
 	}
 
 	public static <T> T getRandomItem(T[] items) {
-		int index = ThreadLocalRandom.current().nextInt(items.length);
+		int index = RANDOM.nextInt(items.length);
 		return items[index];
 	}
 
 	public static int getRandomItem(int[] items) {
-		int index = ThreadLocalRandom.current().nextInt(items.length);
+		int index = RANDOM.nextInt(items.length);
 		return items[index];
 	}
 

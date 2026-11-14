@@ -1,7 +1,6 @@
 package com.magnaboy;
 
 import static com.magnaboy.Util.getRandom;
-import java.time.Instant;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
 
@@ -9,12 +8,14 @@ public class WanderingCitizen extends Citizen<WanderingCitizen> {
 	public WorldArea boundingBox;
 	public WorldPoint wanderRegionBL;
 	public WorldPoint wanderRegionTR;
-	private Instant lastWanderTime;
+	/**
+	 * The game tick count at which the last wander began, or null if it has never wandered.
+	 */
+	private Integer lastWanderTick;
 
 	public WanderingCitizen(CitizensPlugin plugin) {
 		super(plugin);
 		entityType = EntityType.WanderingCitizen;
-		lastWanderTime = Instant.now().minusSeconds(6);
 	}
 
 	public WanderingCitizen setBoundingBox(WorldPoint bottomLeft, WorldPoint topRight) {
@@ -44,12 +45,18 @@ public class WanderingCitizen extends Citizen<WanderingCitizen> {
 		return randomPoint;
 	}
 
-	public void wander() {
-		if (getCurrentTarget() != null || Instant.now().isBefore(lastWanderTime.plusSeconds(6))) {
-			return;
-		}
+	public Integer getLastWanderTick() {
+		return lastWanderTick;
+	}
+
+	/**
+	 * Client thread only. Walks to a random spot in the bounding box.
+	 *
+	 * @param gameTick the current game tick count, remembered for the wander cooldown
+	 */
+	public void wander(int gameTick) {
 		WorldPoint randomSpot = getRandomInBoundingBox();
 		this.moveTo(randomSpot);
-		lastWanderTime = Instant.now();
+		lastWanderTick = gameTick;
 	}
 }

@@ -35,7 +35,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Owns every loaded region, the entities built from them and the script cache.
  * <p>
- * Threading: the maps are read and written only on the client thread. The one tolerated exception until the dev
+ * Concurrency: the maps are read and written only on the client thread. The one tolerated exception until the dev
  * editor moves out of {@code src/main} is the editor's Swing handlers (the "DEVELOPMENT SECTION" below).
  */
 @Slf4j
@@ -333,7 +333,6 @@ public class CitizenRegistry {
 		}
 		region.entities.values().forEach(CitizenRegistry::despawnSafely);
 		regions.remove(regionId);
-		region.executorService.shutdownNow();
 	}
 
 	/**
@@ -360,7 +359,6 @@ public class CitizenRegistry {
 	 */
 	private void clear() {
 		for (CitizenRegion r : regions.values()) {
-			r.executorService.shutdownNow();
 			r.citizenRoster.clear();
 			r.sceneryRoster.clear();
 			r.entities.clear();

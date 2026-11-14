@@ -215,16 +215,12 @@ public class CitizenRegistryTest {
 			registry.loadRegion(id);
 		}
 		Assert.assertFalse(registry.isEmpty());
-		List<CitizenRegion> loaded = new ArrayList<>(registry.getRegions());
 
 		registry.cleanUp();
 
 		Assert.assertTrue(registry.isEmpty());
 		Assert.assertTrue(registry.getRegions().isEmpty());
 		Assert.assertTrue(allEntities().isEmpty());
-		for (CitizenRegion region : loaded) {
-			Assert.assertTrue(region.executorService.isShutdown());
-		}
 	}
 
 	@Test
@@ -277,8 +273,6 @@ public class CitizenRegistryTest {
 
 		Assert.assertNull(registry.getRegion(leavingId));
 		Assert.assertSame(staying, registry.getRegion(stayingId));
-		Assert.assertTrue(leaving.executorService.isShutdown());
-		Assert.assertFalse(staying.executorService.isShutdown());
 		List<Entity> remaining = allEntities();
 		Assert.assertEquals(staying.entities.size(), remaining.size());
 		for (Entity entity : leavingEntities) {
@@ -338,16 +332,12 @@ public class CitizenRegistryTest {
 		List<Integer> ids = regionIds();
 		Set<Integer> loaded = ids(ids.get(0), ids.get(1));
 		registry.syncRegions(loaded);
-		List<CitizenRegion> regions = new ArrayList<>(registry.getRegions());
 
 		registry.unloadAll();
 
 		Assert.assertTrue(registry.isEmpty());
 		Assert.assertTrue(allEntities().isEmpty());
 		Assert.assertFalse(registry.isSyncedWith(loaded));
-		for (CitizenRegion region : regions) {
-			Assert.assertTrue(region.executorService.isShutdown());
-		}
 	}
 
 	@Test

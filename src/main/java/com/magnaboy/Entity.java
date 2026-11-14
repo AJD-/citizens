@@ -26,7 +26,7 @@ import net.runelite.api.model.Jarvis;
 /**
  * A fake NPC or piece of scenery backed by a {@link RuneLiteObject}.
  * <p>
- * Threading: constructors make no client calls. The RuneLiteObject is created lazily on the client thread at the
+ * Concurrency: constructors make no client calls. The RuneLiteObject is created lazily on the client thread at the
  * first successful {@link #spawn()}, and every method that touches it or the client runs on the client thread.
  * {@link #isActive()}, {@link #getAnimationID()}, {@link #getOrientation()} and {@link #getTileLocation()} read
  * plain fields and may be called from any thread.
