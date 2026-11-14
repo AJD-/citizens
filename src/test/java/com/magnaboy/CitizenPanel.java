@@ -36,7 +36,7 @@ import net.runelite.client.ui.PluginPanel;
  * which applies it on the client thread.
  */
 class CitizenPanel extends PluginPanel {
-	private final static String RELOAD_BUTTON_READY = "Reload All Entites";
+	private final static String RELOAD_BUTTON_READY = "Reload All Entities";
 	public WorldPoint wanderRegionBL;
 	public WorldPoint wanderRegionTR;
 	public JLabel editingTargetLabel;

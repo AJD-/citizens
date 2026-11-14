@@ -4,15 +4,16 @@ This plugin adds 'fake npcs' (citizens) to RuneScape to bring more life and acti
 
 # Status
 
-The plugin was marked unavailable on the Plugin Hub in September 2024. A game update in August 2024 had changed model ids, and citizens no longer
-looked right. This fork repaired the region data against the game caches and brought the code up to current RuneLite APIs and Plugin Hub rules.
-The original plugin is by Magnaboy. The original repository is
-[gc/citizens](https://github.com/gc/citizens).
+The plugin was marked unavailable on the Plugin Hub in September 2024. A game update in August 2024 had changed model ids,
+and citizens no longer looked right. This fork repaired the region data against the game caches and brought the code up to
+current RuneLite APIs and Plugin Hub rules. The original plugin is by Magnaboy and contributors (see `LICENSE`). The
+original repository is [gc/citizens](https://github.com/gc/citizens).
 
 # What it does for players
 
-Citizens appear in a few towns. They wander around, say things now and then, and some follow small routines. Right-click a citizen and choose
-Examine to read its examine text. Nothing else about a citizen is clickable, and citizens do not affect gameplay.
+Citizens appear in a few towns. They wander around, say things now and then, and some follow small routines. Right-click a
+citizen and choose Examine to read its examine text. Nothing else about a citizen is clickable, and citizens do not affect
+gameplay.
 
 Two bundled entries hide a real scenery object, so that a citizen can stand in its place.
 
@@ -43,31 +44,36 @@ This starts a RuneLite development client with the plugin loaded. Like any clien
 
 # Adding or editing citizens (dev editor)
 
-The editor is a second plugin, "Citizens Dev Editor". It lives under `src/test`, so it exists only in the development client
-(`./gradlew run`) and is not part of the plugin that ships. It is off by default.
+The editor is a second plugin, "Citizens Dev Editor". It lives under `src/test`, so it exists only in the development
+client (`./gradlew run`) and is not part of the plugin that ships. It is off by default.
 
-1. Start the development client, find "Citizens Dev Editor" in the plugin list and turn it on. A "Citizens" button appears in the side bar.
-   The Citizens plugin itself must also be on.
-2. Walk to the place you want. Right-click a tile and choose the "Citizen Editor" entry for the tile ("Select Tile"). The panel shows the
-   selected position.
-3. Fill in the form in the panel (type, name, examine text, model ids, animations and so on). Press "Spawn Entity" to add a citizen or scenery
-   object on the selected tile. A wandering citizen also needs a wander area: select two tiles in turn and use the "Select BL" and "Select TR"
-   buttons. The tile must be in a region loaded around you.
-4. To change something that exists, right-click it and choose its "Citizen Editor" entry ("Select ..."). The panel shows "Editing: ..." and
-   fills the form. Change the form and press "Update Entity", or press "Delete Entity". To move an entity, select another tile before you press Update. It must stay within
-   its region.
-5. Press "Save Changes". This writes every edited region to its file under `src/main/resources/RegionData`. The panel shows how many regions have
-   unsaved changes.
+1. Start the development client, find "Citizens Dev Editor" in the plugin list and turn it on. A "Citizens" button appears
+   in the side bar. The Citizens plugin itself must also be on.
+2. Walk to the place you want. Right-click a tile and choose the menu entry "Citizen Editor" with the target "Select Tile".
+   The panel shows the selected position.
+3. Fill in the form in the panel (type, name, examine text, model ids, animations and so on). Press "Spawn Entity" to add
+   a citizen or scenery object on the selected tile. A wandering citizen also needs a wander area: select two tiles in
+   turn and use the "Select BL" and "Select TR" buttons. The tile must be in a region loaded around you, and you must be
+   logged in.
+4. To change something that exists, right-click it and choose its "Citizen Editor" entry ("Select ..."). The panel shows
+   "Editing: ..." and fills the form. Change the form and press "Update Entity", or press "Delete Entity".
 
-Edits stay in the client until you save them, even if you walk out of the region. A saved change shows after the client is restarted.
+   To move an entity, select another tile before you press Update. It must stay within its region.
+5. Press "Save Changes". This writes every edited region to its file under `src/main/resources/RegionData`. The path is
+   relative to the working directory, so run the client from the repository root (`./gradlew run` does). The panel shows
+   the path it saved to, and how many regions have unsaved changes.
+
+Edits stay in the client until you save them, even if you walk out of the region. During the session the editor keeps
+showing your edited version. The files the plugin bundles are only picked up again when you start the development client
+with `./gradlew run`.
 
 Two things to know:
 
 - Save rewrites the whole region file with the editor's own formatting, so review the diff before you commit.
-- The Reload button ("Reload All Entities") discards unsaved edits.
+- The Reload button ("Reload All Entities") discards unsaved edits. It needs you to be logged in.
 
-Fields the form has no control for (scripts, hidden objects, merged objects) are kept as they are when you update an entity. To change a
-script, edit its JSON file by hand.
+Fields the form has no control for (scripts, hidden objects, merged objects) are kept as they are when you update an
+entity. To change a script, edit its JSON file by hand.
 
 # Data checks
 
@@ -75,14 +81,14 @@ script, edit its JSON file by hand.
 ./gradlew test
 ```
 
-The tests load every region and script file and check them: ids, enum names, wander boxes, and that every referenced script exists.
-`./gradlew build` runs them too. When a check fails, read the message. It names the file and the entity.
+The tests load every region and script file and check them: ids, enum names, wander boxes, and that every referenced
+script exists. `./gradlew build` runs them too. When a check fails, read the message. It names the file and the entity.
 
 # When a game update breaks models or animations
 
-After a game update, citizens may have the wrong or missing body parts, or broken animations. The `tools/cache-diff` tool compares an old and a new
-game cache and proposes replacement ids. It can update the region files for you. Its proposals are evidence, not proof, so check the result in
-game. See [tools/cache-diff/README.md](tools/cache-diff/README.md).
+After a game update, citizens may have the wrong or missing body parts, or broken animations. The `tools/cache-diff` tool
+compares an old and a new game cache and proposes replacement ids. It can update the region files for you. Its proposals
+are evidence, not proof, so check the result in game. See [tools/cache-diff/README.md](tools/cache-diff/README.md).
 
 # Guidelines For Adding Citizens
 
