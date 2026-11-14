@@ -86,6 +86,8 @@ public class Entity<T extends Entity<T>> {
 		return (T) this;
 	}
 
+	// Adapted from the private Perspective.calculateAABB in RuneLite's runelite-api, Copyright (c) 2017, Adam
+	// <Adam@sigterm.info>, under the BSD 2-Clause licence
 	protected static SimplePolygon calculateAABB(Client client, WorldView wv, Model m, Integer jauOrient, int x, int y, int z) {
 		if (m == null) {
 			throw new IllegalStateException("model is null");
