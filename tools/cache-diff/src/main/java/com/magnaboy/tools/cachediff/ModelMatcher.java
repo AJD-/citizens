@@ -28,7 +28,8 @@ import java.util.TreeMap;
  * {@code kit+votes}) or there are
  * no NPC votes at all ({@code kit-only}): {@code replaced}.</li>
  * <li>No kit evidence, no NPC in the new cache uses the old id any more, and one target has at
- * least {@link #VOTES_ONLY_MIN_PERCENT}% of at least {@link #VOTES_ONLY_MIN_VOTES} votes
+ * least {@link #VOTES_ONLY_MIN_PERCENT}% of the votes, cast by at least
+ * {@link #VOTES_ONLY_MIN_VOTERS} NPCs
  * ({@code votes-only}): {@code replaced}.</li>
  * <li>Otherwise {@code missing-in-new} if the id is gone, else {@code unresolved}.</li>
  * </ol>
@@ -38,8 +39,8 @@ import java.util.TreeMap;
 final class ModelMatcher {
 	/** Votes-only proposals need the top target to hold at least this percentage of all votes. */
 	static final int VOTES_ONLY_MIN_PERCENT = 90;
-	/** Votes-only proposals need at least this many votes in total. */
-	static final int VOTES_ONLY_MIN_VOTES = 3;
+	/** Votes-only proposals need at least this many distinct NPCs voting. */
+	static final int VOTES_ONLY_MIN_VOTERS = 3;
 
 	enum Status {
 		IDENTICAL("identical"),
@@ -151,6 +152,7 @@ final class ModelMatcher {
 	private final CacheView oldCache;
 	private final CacheView newCache;
 	private final Map<Integer, Map<Integer, Integer>> votes = new HashMap<>();
+	private final Map<Integer, Integer> voters = new HashMap<>();
 	private final Map<Integer, Integer> npcUsers = new HashMap<>();
 	private final Map<Integer, Integer> newNpcUsers = new HashMap<>();
 	private final Map<Integer, Map<Integer, List<Integer>>> kitTargets = new HashMap<>();
@@ -182,6 +184,9 @@ final class ModelMatcher {
 			}
 			for (int i = 0; i < before.length; i++) {
 				votes.computeIfAbsent(before[i], k -> new HashMap<>()).merge(now.models[i], 1, Integer::sum);
+			}
+			for (int m : distinct(before)) {
+				voters.merge(m, 1, Integer::sum);
 			}
 		}
 		for (NpcInfo n : newNpcs.values()) {
@@ -233,8 +238,10 @@ final class ModelMatcher {
 
 		List<Integer> moved = new ArrayList<>();
 		for (int other : newCache.modelsWithHash(before.hash)) {
+			// The target must not have had this geometry already; an undecodable old model is unknown, so not a move.
 			ModelState otherBefore = oldCache.model(other);
-			if (other != id && !(otherBefore.ok() && otherBefore.hash.equals(before.hash))) {
+			boolean newThere = otherBefore.kind == ModelState.Kind.ABSENT || (otherBefore.ok() && !otherBefore.hash.equals(before.hash));
+			if (other != id && newThere) {
 				moved.add(other);
 			}
 		}
@@ -263,7 +270,7 @@ final class ModelMatcher {
 		}
 		if (kits.isEmpty() && topVote != null && topVote != id && newUsers == 0) {
 			int total = sumOf(v);
-			if (total >= VOTES_ONLY_MIN_VOTES && v.get(topVote) * 100 >= VOTES_ONLY_MIN_PERCENT * total) {
+			if (voters.getOrDefault(id, 0) >= VOTES_ONLY_MIN_VOTERS && v.get(topVote) * 100 >= VOTES_ONLY_MIN_PERCENT * total) {
 				return new Verdict(id, Status.REPLACED, topVote, Rule.VOTES_ONLY, v, kits, users, newUsers, moved, null);
 			}
 		}

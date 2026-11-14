@@ -100,14 +100,23 @@ public class ModelMatcherTest {
 	}
 
 	@Test
-	public void votesOnlyWithTooFewVotesIsUnresolved() {
-		votes(100, ModelMatcher.VOTES_ONLY_MIN_VOTES - 1, NEW);
+	public void votesOnlyWithTooFewVotersIsUnresolved() {
+		votes(100, ModelMatcher.VOTES_ONLY_MIN_VOTERS - 1, NEW);
 		assertNoProposal(verdict(), Status.UNRESOLVED);
 	}
 
 	@Test
-	public void votesOnlyWithMinimumVotesIsAccepted() {
-		votes(100, ModelMatcher.VOTES_ONLY_MIN_VOTES, NEW);
+	public void votesOnlyCountsVotingNpcsNotPositions() {
+		oldCache.npc(100, OLD, OLD, OLD);
+		newCache.npc(100, NEW, NEW, NEW);
+		Verdict v = verdict();
+		assertEquals(3, v.totalVotes());
+		assertNoProposal(v, Status.UNRESOLVED);
+	}
+
+	@Test
+	public void votesOnlyWithMinimumVotersIsAccepted() {
+		votes(100, ModelMatcher.VOTES_ONLY_MIN_VOTERS, NEW);
 		assertProposal(verdict(), Status.REPLACED, NEW, Rule.VOTES_ONLY);
 	}
 
@@ -131,6 +140,13 @@ public class ModelMatcherTest {
 		newCache.model(OTHER, "a");
 		votes(100, 6, OLD);
 		assertNoProposal(verdict(), Status.CHANGED_IN_PLACE);
+	}
+
+	@Test
+	public void aTargetWhoseOldModelIsUndecodableIsNotAMove() {
+		oldCache.undecodable(OTHER);
+		newCache.model(OTHER, "a");
+		assertNoProposal(verdict(), Status.UNRESOLVED);
 	}
 
 	@Test

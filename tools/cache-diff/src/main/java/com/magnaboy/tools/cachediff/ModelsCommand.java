@@ -64,6 +64,10 @@ final class ModelsCommand {
 			printRecolors(RecolorCheck.check(entities, map, oldCache, newCache));
 
 			if (outFile != null) {
+				Path parent = outFile.toAbsolutePath().getParent();
+				if (parent != null) {
+					Files.createDirectories(parent);
+				}
 				Files.write(outFile, MapFile.format(map).getBytes(StandardCharsets.UTF_8));
 				Path evidence = MapFile.evidencePath(outFile);
 				Files.write(evidence, MapFile.formatEvidence(proposals).getBytes(StandardCharsets.UTF_8));

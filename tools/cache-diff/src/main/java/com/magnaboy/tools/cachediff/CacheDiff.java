@@ -33,7 +33,7 @@ public final class CacheDiff {
 
 	static int run(String[] args, PrintStream out, PrintStream err) {
 		if (args.length == 0) {
-			err.println(USAGE_TEXT);
+			err.println("cache-diff: no command (run 'help' for usage)");
 			return USAGE;
 		}
 		try {
@@ -53,13 +53,11 @@ public final class CacheDiff {
 					out.println(USAGE_TEXT);
 					return OK;
 				default:
-					err.println("cache-diff: unknown command: " + args[0]);
-					err.println(USAGE_TEXT);
+					err.println("cache-diff: unknown command: " + args[0] + " (run 'help' for usage)");
 					return USAGE;
 			}
 		} catch (CliArgs.UsageException e) {
-			err.println("cache-diff: " + e.getMessage());
-			err.println(USAGE_TEXT);
+			err.println("cache-diff: " + e.getMessage() + " (run 'help' for usage)");
 			return USAGE;
 		} catch (GameCache.CacheException | MapFile.MapFileException | Json.ParseException e) {
 			err.println("cache-diff: " + e.getMessage());

@@ -30,6 +30,12 @@ final class ApplyCommand {
 		}
 		Map<Integer, Integer> map = MapFile.read(mapFile);
 		out.println((write ? "WRITE" : "DRY RUN") + ": " + map.size() + " map entries, data " + dataDir);
+		Set<Integer> chained = new TreeSet<>(map.values());
+		chained.retainAll(map.keySet());
+		if (!chained.isEmpty()) {
+			out.println("note: the map chains through " + chained + "; each run maps every id once,"
+				+ " so run --write only once per map (a second run would map those ids again)");
+		}
 
 		Set<Integer> used = new HashSet<>();
 		int changedFiles = 0;

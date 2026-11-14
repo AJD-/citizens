@@ -117,20 +117,24 @@ Rewrites the `modelIds` arrays of citizen entities using the map. It is a dry ru
 
 - Only the digits of replaced numbers change. Whitespace, key order, line endings, scenery entities,
   `mergedObjects` and recolour arrays stay byte for byte as they were.
-- Each original number is mapped **once**. Chains are safe: with `271 -> 28337` and `28337 -> 28512` in
-  the map, 271 becomes 28337, not 28512, and an existing 28337 becomes 28512.
+- Each original number is mapped **once per run**. Chains are safe within a run: with `271 -> 28337`
+  and `28337 -> 28512` in the map, 271 becomes 28337, not 28512, and an existing 28337 becomes 28512.
+- **Run `--write` only once per map.** A second `--write` would turn that new 28337 into 28512. `apply`
+  prints a note when the map chains. After a `--write`, make any new map from the edited data instead of
+  re-applying the old one.
 - Map entries that no citizen uses are listed at the end.
 - Nothing is written if any file fails to parse.
 
 Exit codes: `0` success, `2` bad arguments, `1` other errors (unreadable cache, malformed data or map).
-Errors are a one-line message.
+Errors are a one-line message on stderr; `help` prints the usage. Under `gradle run`, Gradle adds its own
+"Build failed" lines after a non-zero exit.
 
 ## Reading the statuses
 
 | status | meaning | proposal |
 |---|---|---|
 | `identical` | Same geometry and face colours at the same id. Never remapped, whatever the other evidence says. | none |
-| `moved` | The old geometry now lives at exactly one other id, which did not already have it in the old cache. | that id (`geometry-move`) |
+| `moved` | The old geometry now lives at exactly one other id, which did not already have it in the old cache: that id was absent there, or held a different model. An old model that cannot be decoded does not count. | that id (`geometry-move`) |
 | `replaced` | Evidence points to a new id (see the rules below). | that id |
 | `changed-in-place` | The model was remade under the same id: a player kit maps the id to itself, or more than half of the NPCs that used it keep it at the same position. | none (keep the id) |
 | `missing-in-new` | The id is gone from the new cache and nothing points to a replacement. | none: needs a manual fix |
@@ -143,9 +147,9 @@ Rules for `replaced`, from strongest to weakest:
   the new cache, and the top NPC vote is the same new id.
 - **`kit-only`**: the kit mapping as above, with no NPC votes at all (every NPC using it changed the
   length of its model list).
-- **`votes-only`**: no kit evidence, but no NPC in the new cache uses the old id any more, and one target
-  holds at least 90% of at least 3 votes. (These are `VOTES_ONLY_MIN_PERCENT` and `VOTES_ONLY_MIN_VOTES`
-  in `ModelMatcher`.)
+- **`votes-only`**: no kit evidence, and no NPC in the new cache uses the old id any more. At least 3
+  NPCs must vote, and one target must hold at least 90% of the votes. (These thresholds are
+  `VOTES_ONLY_MIN_VOTERS` and `VOTES_ONLY_MIN_PERCENT` in `ModelMatcher`.)
 
 A **vote** is one position in the model list of an NPC that exists in both caches with a model list of
 the same length: the old model at that position votes for the new model at that position. NPCs whose

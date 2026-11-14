@@ -34,21 +34,29 @@ public class CacheDiffCliTest {
 		return new String(out.toByteArray(), StandardCharsets.UTF_8);
 	}
 
+	private void assertOneLineError() {
+		assertEquals(1, err().trim().split("\n").length);
+		assertFalse(err().contains("\tat "));
+	}
+
 	@Test
 	public void noArgumentsFails() {
 		assertNotEquals(0, run());
+		assertOneLineError();
 	}
 
 	@Test
 	public void unknownCommandFails() {
 		assertNotEquals(0, run("frobnicate"));
 		assertTrue(err().contains("unknown command"));
+		assertOneLineError();
 	}
 
 	@Test
 	public void missingRequiredOptionFails() {
 		assertNotEquals(0, run("models", "--new", "x"));
 		assertTrue(err().contains("needs --old"));
+		assertOneLineError();
 	}
 
 	@Test
@@ -69,8 +77,7 @@ public class CacheDiffCliTest {
 		Path notACache = tmp.newFolder("empty").toPath();
 		assertNotEquals(0, run("models", "--old", notACache.toString(), "--new", notACache.toString(), "--data", data.toString()));
 		assertTrue(err().contains("not a game cache"));
-		assertFalse(err().contains("\tat "));
-		assertEquals(1, err().trim().split("\n").length);
+		assertOneLineError();
 	}
 
 	@Test
@@ -87,6 +94,7 @@ public class CacheDiffCliTest {
 		Files.write(map, "{ \"12\": \"x\" }".getBytes(StandardCharsets.UTF_8));
 		assertNotEquals(0, run("apply", "--map", map.toString(), "--data", data.toString()));
 		assertTrue(err().contains("not an integer id"));
+		assertOneLineError();
 	}
 
 	private Path dataWithOneFile() throws Exception {
@@ -111,6 +119,7 @@ public class CacheDiffCliTest {
 		assertEquals(modified, Files.getLastModifiedTime(data.resolve("1.json")).toMillis());
 		assertTrue(out().contains("+    7 \t100,7],"));
 		assertTrue(out().contains("Dry run: nothing written"));
+		assertTrue(out().contains("note: the map chains through [2, 3]"));
 	}
 
 	@Test
