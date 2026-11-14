@@ -272,8 +272,9 @@ public class CitizenRegistry {
 	/**
 	 * Client thread only. Brings the loaded regions in line with {@code loadedRegionIds}: every region that is not
 	 * in it is despawned and unloaded, and every id in it that is not loaded and was not in the previous call is
-	 * loaded. Ids without a data file are remembered and not looked up again while they stay in the set. Calling it
-	 * again with the same set changes nothing. It does not spawn anything; see {@link #updateAllEntities()}.
+	 * loaded. Ids without a data file, or whose data fails to load, are remembered and not looked up again while they
+	 * stay in the set. Calling it again with the same set changes nothing. It does not spawn anything; see
+	 * {@link #updateAllEntities()}.
 	 */
 	public void syncRegions(Set<Integer> loadedRegionIds) {
 		List<Integer> leaving = new ArrayList<>();
@@ -288,7 +289,7 @@ public class CitizenRegistry {
 
 		for (Integer regionId : loadedRegionIds) {
 			if (!syncedRegionIds.contains(regionId) && !regions.containsKey(regionId)) {
-				loadRegion(regionId);
+				loadRegionSafely(regionId);
 			}
 		}
 
@@ -333,6 +334,17 @@ public class CitizenRegistry {
 		region.entities.values().forEach(CitizenRegistry::despawnSafely);
 		regions.remove(regionId);
 		region.executorService.shutdownNow();
+	}
+
+	/**
+	 * Loads a region, treating bad data as a missing file so that one broken region does not stop the others.
+	 */
+	private void loadRegionSafely(int regionId) {
+		try {
+			loadRegion(regionId);
+		} catch (RuntimeException e) {
+			log.warn("Failed to load region {}", regionId, e);
+		}
 	}
 
 	private static void despawnSafely(Entity entity) {

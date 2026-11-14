@@ -194,6 +194,8 @@ public class CitizensPlugin extends Plugin {
 	@Subscribe
 	public void onWorldViewLoaded(WorldViewLoaded event) {
 		if (event.getWorldView().isTopLevel()) {
+			// A load without a preceding unload must not leave objects registered against the old scene
+			registry.despawnAll();
 			reconcile();
 		}
 	}

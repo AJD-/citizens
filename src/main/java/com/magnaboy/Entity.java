@@ -313,9 +313,10 @@ public class Entity<T extends Entity<T>> {
 		}
 
 		boolean wasActive = active;
-		// Deregister even when the flag says inactive: a registration the flag missed would otherwise outlive the
-		// scene. Removing an object that is not registered does nothing.
-		rlObject.setActive(false);
+		// Ask the client rather than the flag: a registration the flag missed would otherwise outlive the scene
+		if (rlObject.isActive()) {
+			rlObject.setActive(false);
+		}
 		active = false;
 
 		if (wasActive && plugin.IS_DEVELOPMENT) {

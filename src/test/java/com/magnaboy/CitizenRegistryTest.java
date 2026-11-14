@@ -24,11 +24,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import net.runelite.api.Client;
+import net.runelite.api.RuneLiteObject;
 import net.runelite.http.api.RuneLiteAPI;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -345,6 +348,51 @@ public class CitizenRegistryTest {
 		for (CitizenRegion region : regions) {
 			Assert.assertTrue(region.executorService.isShutdown());
 		}
+	}
+
+	@Test
+	public void despawnRemovesOnlyAnObjectTheClientHasRegistered() {
+		Scenery scenery = new Scenery(plugin).setUUID(UUID.randomUUID());
+		scenery.rlObject = mock(RuneLiteObject.class);
+
+		when(scenery.rlObject.isActive()).thenReturn(false);
+		scenery.despawn();
+		verify(scenery.rlObject, never()).setActive(false);
+
+		// The entity's own flag is false here too: the client's answer decides
+		when(scenery.rlObject.isActive()).thenReturn(true);
+		scenery.despawn();
+		verify(scenery.rlObject).setActive(false);
+	}
+
+	@Test
+	public void syncTreatsARegionThatFailsToLoadAsAMiss() throws IOException {
+		List<Integer> ids = regionIds();
+		int broken = ids.get(0);
+		int healthy = ids.get(1);
+		AtomicInteger brokenAttempts = new AtomicInteger();
+		registry = new CitizenRegistry(plugin, RuneLiteAPI.GSON) {
+			@Override
+			public CitizenRegion loadRegion(int regionId) {
+				if (regionId == broken) {
+					brokenAttempts.incrementAndGet();
+					throw new IllegalStateException("Expected by the test: bad region data");
+				}
+				return super.loadRegion(regionId);
+			}
+		};
+		Set<Integer> loaded = ids(broken, healthy);
+
+		registry.syncRegions(loaded);
+
+		Assert.assertNull(registry.getRegion(broken));
+		Assert.assertNotNull(registry.getRegion(healthy));
+		Assert.assertTrue(registry.isSyncedWith(loaded));
+		Assert.assertEquals(1, brokenAttempts.get());
+
+		// Not retried while it stays in the loaded map
+		registry.syncRegions(loaded);
+		Assert.assertEquals(1, brokenAttempts.get());
 	}
 
 	@Test
