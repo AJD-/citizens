@@ -265,7 +265,6 @@ public class CitizenRegistry {
 	 */
 	public void clear() {
 		for (CitizenRegion r : regions.values()) {
-			r.executorService.shutdownNow();
 			r.citizenRoster.clear();
 			r.sceneryRoster.clear();
 			r.entities.clear();
