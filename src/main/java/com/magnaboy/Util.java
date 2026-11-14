@@ -1,13 +1,5 @@
 package com.magnaboy;
 
-import com.google.gson.reflect.TypeToken;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.lang.reflect.Type;
-import java.util.Map;
 import java.util.Random;
 import net.runelite.api.Perspective;
 import net.runelite.api.coords.WorldArea;
@@ -18,18 +10,6 @@ public final class Util {
 	public final static int MAX_ENTITY_RENDER_DISTANCE = 25;
 	// For picking spawn and wander positions and remark text; the behaviour rolls use the plugin's own Random
 	private static final Random RANDOM = new Random();
-	private static Map<String, AnimData> animData;
-
-	public static void initAnimationData(CitizensPlugin plugin) {
-		try (InputStream inputStream = plugin.getClass().getResourceAsStream("/animationData.json");
-				Reader reader = new BufferedReader(new InputStreamReader(inputStream))) {
-			Type type = new TypeToken<Map<String, AnimData>>() {
-			}.getType();
-			animData = plugin.gson.fromJson(reader, type);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
-	}
 
 	public static int getRandom(int min, int max) {
 		if (min == max) {
@@ -84,16 +64,4 @@ public final class Util {
 
 		return new WorldArea(bottomLeft, width, height);
 	}
-
-	public static AnimData getAnimData(int id) {
-		return animData.get(String.valueOf(id));
-	}
-
-	public static class AnimData {
-		public int id;
-		public int frameCount;
-		public int clientTicks;
-		public int realDurationMillis;
-	}
-
 }

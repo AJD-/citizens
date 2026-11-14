@@ -4,10 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.AABB;
 import net.runelite.api.Animation;
+import net.runelite.api.AnimationController;
 import net.runelite.api.Client;
 import net.runelite.api.GameObject;
 import net.runelite.api.Model;
@@ -170,6 +172,27 @@ public class Entity<T extends Entity<T>> {
 		Animation anim = plugin.client.loadAnimation(animationID);
 		rlObject.setAnimation(anim);
 		this.animationId = animationID;
+	}
+
+	/**
+	 * Client thread only. Plays an animation that calls {@code onFinished} at its end instead of looping. Does nothing
+	 * before the object exists or when the animation does not load.
+	 *
+	 * @return the animation played, or null if nothing changed
+	 */
+	protected Animation setAnimation(int animationID, Consumer<AnimationController> onFinished) {
+		if (rlObject == null) {
+			return null;
+		}
+		Animation anim = plugin.client.loadAnimation(animationID);
+		if (anim == null) {
+			return null;
+		}
+		AnimationController controller = new AnimationController(plugin.client, anim);
+		controller.setOnFinished(onFinished);
+		rlObject.setAnimationController(controller);
+		this.animationId = animationID;
+		return anim;
 	}
 
 	public T setWorldLocation(WorldPoint location) {

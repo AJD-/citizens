@@ -110,9 +110,6 @@ public class CitizensPlugin extends Plugin {
 			clientToolbar.addNavigation(navButton);
 		}
 
-		// Before the hand-off below: scripted citizens can start their routine as soon as reconcile spawns them
-		Util.initAnimationData(this);
-
 		// Shows citizens straight away when enabled while logged in. Runs after any cleanup task queued by a
 		// preceding shutDown(): invokeLater tasks run in FIFO order.
 		clientThread.invokeLater(this::reconcile);
