@@ -11,12 +11,11 @@ import net.runelite.api.GameObject;
 import net.runelite.api.Model;
 import net.runelite.api.ModelData;
 import net.runelite.api.Perspective;
-import static net.runelite.api.Perspective.COSINE;
-import static net.runelite.api.Perspective.SINE;
 import net.runelite.api.Player;
 import net.runelite.api.RuneLiteObject;
 import net.runelite.api.Scene;
 import net.runelite.api.Tile;
+import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.geometry.SimplePolygon;
@@ -48,7 +47,7 @@ public class Entity<T extends Entity<T>> {
 		this.rlObject = plugin.client.createRuneLiteObject();
 	}
 
-	protected static SimplePolygon calculateAABB(Client client, Model m, Integer jauOrient, int x, int y, int z, int zOff) {
+	protected static SimplePolygon calculateAABB(Client client, WorldView wv, Model m, Integer jauOrient, int x, int y, int z) {
 		if (m == null) {
 			throw new IllegalStateException("model is null");
 		}
@@ -59,7 +58,7 @@ public class Entity<T extends Entity<T>> {
 
 		int x1 = aabb.getCenterX();
 		int y1 = aabb.getCenterZ();
-		int z1 = aabb.getCenterY() + zOff;
+		int z1 = aabb.getCenterY();
 
 		int ex = aabb.getExtremeX();
 		int ey = aabb.getExtremeZ();
@@ -73,59 +72,17 @@ public class Entity<T extends Entity<T>> {
 		y1 -= ey;
 		z1 -= ez;
 
-		int[] xa = new int[]{x1, x2, x1, x2, x1, x2, x1, x2};
-		int[] ya = new int[]{y1, y1, y2, y2, y1, y1, y2, y2};
-		int[] za = new int[]{z1, z1, z1, z1, z2, z2, z2, z2};
+		float[] xa = new float[]{x1, x2, x1, x2, x1, x2, x1, x2};
+		float[] ya = new float[]{y1, y1, y2, y2, y1, y1, y2, y2};
+		float[] za = new float[]{z1, z1, z1, z1, z2, z2, z2, z2};
 
 		int[] x2d = new int[8];
 		int[] y2d = new int[8];
 
-		Entity.modelToCanvasCpu(client, 8, x, y, z, 0, xa, ya, za, x2d, y2d);
+		// Use RuneLite's own projection; camera angles are no longer in 2048-unit JAU
+		Perspective.modelToCanvas(client, wv, 8, x, y, z, 0, xa, ya, za, x2d, y2d);
 
 		return Jarvis.convexHull(x2d, y2d);
-	}
-
-	private static void modelToCanvasCpu(Client client, int end, int x3dCenter, int y3dCenter, int z3dCenter, int rotate, int[] x3d, int[] y3d, int[] z3d, int[] x2d, int[] y2d) {
-		final int cameraPitch = client.getCameraPitch(), cameraYaw = client.getCameraYaw(),
-
-			pitchSin = SINE[cameraPitch], pitchCos = COSINE[cameraPitch], yawSin = SINE[cameraYaw], yawCos = COSINE[cameraYaw], rotateSin = SINE[rotate], rotateCos = COSINE[rotate],
-
-			cx = x3dCenter - client.getCameraX(), cy = y3dCenter - client.getCameraY(), cz = z3dCenter - client.getCameraZ(),
-
-			viewportXMiddle = client.getViewportWidth() / 2, viewportYMiddle = client.getViewportHeight() / 2, viewportXOffset = client.getViewportXOffset(), viewportYOffset = client.getViewportYOffset(),
-
-			zoom3d = client.getScale();
-
-		for (int i = 0; i < end; i++) {
-			int x = x3d[i];
-			int y = y3d[i];
-			int z = z3d[i];
-
-			if (rotate != 0) {
-				int x0 = x;
-				x = x0 * rotateCos + y * rotateSin >> 16;
-				y = y * rotateCos - x0 * rotateSin >> 16;
-			}
-
-			x += cx;
-			y += cy;
-			z += cz;
-
-			final int x1 = x * yawCos + y * yawSin >> 16, y1 = y * yawCos - x * yawSin >> 16, y2 = z * pitchCos - y1 * pitchSin >> 16, z1 = y1 * pitchCos + z * pitchSin >> 16;
-
-			int viewX, viewY;
-
-			if (z1 < 50) {
-				viewX = Integer.MIN_VALUE;
-				viewY = Integer.MIN_VALUE;
-			} else {
-				viewX = (viewportXMiddle + x1 * zoom3d / z1) + viewportXOffset;
-				viewY = (viewportYMiddle + y2 * zoom3d / z1) + viewportYOffset;
-			}
-
-			x2d[i] = viewX;
-			y2d[i] = viewY;
-		}
 	}
 
 	public int getAnimationID() {
@@ -137,9 +94,13 @@ public class Entity<T extends Entity<T>> {
 	}
 
 	public SimplePolygon getClickbox() {
+		WorldView wv = plugin.client.getTopLevelWorldView();
 		LocalPoint location = getLocalLocation();
-		int zOff = Perspective.getTileHeight(plugin.client, location, plugin.client.getPlane());
-		return calculateAABB(plugin.client, rlObject.getModel(), rlObject.getOrientation(), location.getX(), location.getY(), plugin.client.getPlane(), zOff);
+		if (wv == null || location == null) {
+			return null;
+		}
+		int tileHeight = Perspective.getTileHeight(plugin.client, location, wv.getPlane());
+		return calculateAABB(plugin.client, wv, rlObject.getModel(), rlObject.getOrientation(), location.getX(), location.getY(), tileHeight);
 	}
 
 	public LocalPoint getLocalLocation() {
@@ -253,6 +214,9 @@ public class Entity<T extends Entity<T>> {
 
 	public float distanceToPlayer() {
 		Player player = plugin.client.getLocalPlayer();
+		if (player == null) {
+			return Float.MAX_VALUE;
+		}
 		WorldPoint playerWorldLoc = player.getWorldLocation();
 		return playerWorldLoc.distanceTo(getWorldLocation());
 	}
