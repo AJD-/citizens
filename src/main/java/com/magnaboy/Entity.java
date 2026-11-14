@@ -301,25 +301,28 @@ public class Entity<T extends Entity<T>> {
 	}
 
 	/**
-	 * Client thread only. Removes the object from the scene.
+	 * Client thread only. Removes the object from the scene. Safe to call on an entity that is not spawned.
 	 *
 	 * @return whether the entity was active
 	 */
 	public boolean despawn() {
 		assert plugin.client.isClientThread();
 
-		if (rlObject == null || !active) {
+		if (rlObject == null) {
 			return false;
 		}
 
+		boolean wasActive = active;
+		// Deregister even when the flag says inactive: a registration the flag missed would otherwise outlive the
+		// scene. Removing an object that is not registered does nothing.
 		rlObject.setActive(false);
 		active = false;
 
-		if (plugin.IS_DEVELOPMENT) {
+		if (wasActive && plugin.IS_DEVELOPMENT) {
 			plugin.panel.update();
 		}
 
-		return true;
+		return wasActive;
 	}
 
 	/**

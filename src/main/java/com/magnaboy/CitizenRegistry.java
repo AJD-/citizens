@@ -18,14 +18,19 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Owns every loaded region, the entities built from them and the script cache.
@@ -33,6 +38,7 @@ import javax.inject.Singleton;
  * Threading: the maps are read and written only on the client thread. The one tolerated exception until the dev
  * editor moves out of {@code src/main} is the editor's Swing handlers (the "DEVELOPMENT SECTION" below).
  */
+@Slf4j
 @Singleton
 public class CitizenRegistry {
 	private static final float VALID_REGION_VERSION = 0.8f;
@@ -43,6 +49,11 @@ public class CitizenRegistry {
 	private final ScriptLoader scriptLoader;
 	private final Map<Integer, CitizenRegion> regions = new HashMap<>();
 	private final Map<Integer, CitizenRegion> dirtyRegions = new HashMap<>();
+	/**
+	 * The region ids last passed to {@link #syncRegions(Set)}, including those without a data file, so a miss is not
+	 * retried while it stays in the loaded map.
+	 */
+	private final Set<Integer> syncedRegionIds = new HashSet<>();
 
 	@Inject
 	CitizenRegistry(CitizensPlugin plugin, Gson gson) {
@@ -251,25 +262,99 @@ public class CitizenRegistry {
 	}
 
 	/**
-	 * Client thread only: despawns every entity (removing its RuneLiteObject from the scene), then clears the
+	 * Client thread only. Despawns every entity in every region, removing its RuneLiteObject from the scene. The
+	 * regions stay loaded. An entity that fails to despawn is logged and does not stop the others.
+	 */
+	public void despawnAll() {
+		forEachEntity(CitizenRegistry::despawnSafely);
+	}
+
+	/**
+	 * Client thread only. Brings the loaded regions in line with {@code loadedRegionIds}: every region that is not
+	 * in it is despawned and unloaded, and every id in it that is not loaded and was not in the previous call is
+	 * loaded. Ids without a data file are remembered and not looked up again while they stay in the set. Calling it
+	 * again with the same set changes nothing. It does not spawn anything; see {@link #updateAllEntities()}.
+	 */
+	public void syncRegions(Set<Integer> loadedRegionIds) {
+		List<Integer> leaving = new ArrayList<>();
+		for (Integer regionId : regions.keySet()) {
+			if (!loadedRegionIds.contains(regionId)) {
+				leaving.add(regionId);
+			}
+		}
+		for (Integer regionId : leaving) {
+			unloadRegion(regionId);
+		}
+
+		for (Integer regionId : loadedRegionIds) {
+			if (!syncedRegionIds.contains(regionId) && !regions.containsKey(regionId)) {
+				loadRegion(regionId);
+			}
+		}
+
+		syncedRegionIds.clear();
+		syncedRegionIds.addAll(loadedRegionIds);
+	}
+
+	/**
+	 * Whether {@code loadedRegionIds} is the set the regions were last synced with.
+	 */
+	public boolean isSyncedWith(Set<Integer> loadedRegionIds) {
+		return syncedRegionIds.equals(loadedRegionIds);
+	}
+
+	/**
+	 * Client thread only. Despawns and unloads every region. The next {@link #syncRegions(Set)} loads from scratch.
+	 */
+	public void unloadAll() {
+		for (Integer regionId : new ArrayList<>(regions.keySet())) {
+			unloadRegion(regionId);
+		}
+		syncedRegionIds.clear();
+	}
+
+	/**
+	 * Client thread only: despawns every entity (removing its RuneLiteObject from the scene), then empties the
 	 * registry.
 	 */
 	public void cleanUp() {
-		forEachEntity(Entity::despawn);
+		despawnAll();
 		clear();
 	}
 
 	/**
-	 * Empties the registry without touching the client. Entities that are still spawned stay in the scene, so
-	 * outside of tests use {@link #cleanUp()}.
+	 * Client thread only. Despawns the region's entities, then removes it from the registry.
 	 */
-	public void clear() {
+	private void unloadRegion(int regionId) {
+		CitizenRegion region = regions.get(regionId);
+		if (region == null) {
+			return;
+		}
+		region.entities.values().forEach(CitizenRegistry::despawnSafely);
+		regions.remove(regionId);
+		region.executorService.shutdownNow();
+	}
+
+	private static void despawnSafely(Entity entity) {
+		try {
+			entity.despawn();
+		} catch (RuntimeException e) {
+			log.warn("Failed to despawn {} {} ({})", entity.getEntityType(), entity.uuid, entity.name, e);
+		}
+	}
+
+	/**
+	 * Empties the registry without touching the client. Only for {@link #cleanUp()}, once every entity is despawned.
+	 */
+	private void clear() {
 		for (CitizenRegion r : regions.values()) {
+			r.executorService.shutdownNow();
 			r.citizenRoster.clear();
 			r.sceneryRoster.clear();
 			r.entities.clear();
 		}
 		regions.clear();
+		syncedRegionIds.clear();
 		dirtyRegions.clear();
 		scriptLoader.clear();
 	}
