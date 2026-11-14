@@ -1,0 +1,2 @@
+// Standalone maintainer tool. Not part of the plugin build: the root settings.gradle does not include it.
+rootProject.name = 'cache-diff'

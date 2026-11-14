@@ -1,0 +1,36 @@
+plugins {
+	id 'java'
+	id 'application'
+}
+
+repositories {
+	maven {
+		url = 'https://repo.runelite.net'
+	}
+	mavenCentral()
+}
+
+dependencies {
+	// Game cache reader (same version the plugin's RuneLite dependency uses).
+	// Its slf4j-simple binding is swapped for slf4j-nop so the cache library's logging stays quiet.
+	implementation('net.runelite:cache:1.13.6') {
+		exclude group: 'org.slf4j', module: 'slf4j-simple'
+	}
+	runtimeOnly 'org.slf4j:slf4j-nop:1.7.25'
+
+	testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release.set(11)
+}
+
+application {
+	mainClass = 'com.magnaboy.tools.cachediff.CacheDiff'
+}
+
+// Run from the repository root so the default --data path and relative paths in the README work.
+tasks.named('run') {
+	workingDir = rootProject.projectDir.parentFile.parentFile
+}
