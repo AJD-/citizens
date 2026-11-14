@@ -18,11 +18,4 @@ public class CitizenRegion {
 	public int regionId;
 	public List<CitizenInfo> citizenRoster = new ArrayList<>();
 	public List<SceneryInfo> sceneryRoster = new ArrayList<>();
-
-	/**
-	 * Client thread only.
-	 */
-	public void updateEntities() {
-		entities.values().forEach(Entity::update);
-	}
 }

@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -478,6 +479,131 @@ public class CitizenRegistryTest {
 
 		region.entities.put(failing.uuid, failing);
 		region.entities.put(counting.uuid, counting);
+	}
+
+	/**
+	 * An empty in-memory region whose entities keep their insertion order, so that a test can put a failing entity
+	 * before the others.
+	 */
+	private CitizenRegion orderedRegion() throws IOException {
+		CitizenRegion region = registry.createRegion(regionIdWithoutData());
+		region.entities = new LinkedHashMap<>();
+		return region;
+	}
+
+	private static <E extends Entity<?>> E put(CitizenRegion region, E entity) {
+		entity.setUUID(UUID.randomUUID()).setRegion(region.regionId);
+		region.entities.put(entity.uuid, entity);
+		return entity;
+	}
+
+	@Test
+	public void anEntityWhoseUpdateThrowsIsDisabledWithoutStoppingTheOthers() throws IOException {
+		CitizenRegion region = orderedRegion();
+		AtomicInteger failingUpdates = new AtomicInteger();
+		AtomicInteger otherUpdates = new AtomicInteger();
+		Scenery failing = put(region, new Scenery(plugin) {
+			@Override
+			public void update() {
+				failingUpdates.incrementAndGet();
+				throw new IllegalStateException("Expected by the test: update failure");
+			}
+		});
+		RuneLiteObject failingObject = mock(RuneLiteObject.class);
+		when(failingObject.isActive()).thenReturn(true);
+		failing.rlObject = failingObject;
+		put(region, new Scenery(plugin) {
+			@Override
+			public void update() {
+				otherUpdates.incrementAndGet();
+			}
+		});
+
+		try (LogCapture log = new LogCapture()) {
+			registry.updateAllEntities();
+
+			Assert.assertEquals(1, failingUpdates.get());
+			Assert.assertEquals(1, otherUpdates.get());
+			Assert.assertTrue(failing.isFailed());
+			verify(failingObject).setActive(false);
+
+			// Not retried on the next pass, and the others carry on
+			registry.updateAllEntities();
+			Assert.assertEquals(1, failingUpdates.get());
+			Assert.assertEquals(2, otherUpdates.get());
+			log.assertOneWarning("Disabled");
+		}
+		// Still in its region: it is only skipped
+		Assert.assertSame(failing, region.entities.get(failing.uuid));
+	}
+
+	@Test
+	public void anEntityThatThrowsInALoopIsSkippedByEveryLoop() throws IOException {
+		CitizenRegion region = orderedRegion();
+		AtomicInteger failingUpdates = new AtomicInteger();
+		Scenery failing = put(region, new Scenery(plugin) {
+			@Override
+			public float distanceToPlayer() {
+				throw new IllegalStateException("Expected by the test: distance failure");
+			}
+
+			@Override
+			public void update() {
+				failingUpdates.incrementAndGet();
+			}
+		});
+		Scenery other = put(region, new Scenery(plugin) {
+			@Override
+			public float distanceToPlayer() {
+				return 0;
+			}
+		});
+		List<Entity> visited = new ArrayList<>();
+
+		try (LogCapture log = new LogCapture()) {
+			registry.forEachActiveEntity(visited::add);
+			Assert.assertEquals(Collections.singletonList(other), visited);
+			Assert.assertTrue(failing.isFailed());
+			Assert.assertFalse(other.isFailed());
+
+			registry.forEachActiveEntity(visited::add);
+			registry.updateAllEntities();
+			Assert.assertEquals(Arrays.asList(other, other), visited);
+			Assert.assertEquals(0, failingUpdates.get());
+			log.assertOneWarning("Disabled");
+		}
+	}
+
+	@Test
+	public void anActionThatThrowsDisablesOnlyItsEntity() throws IOException {
+		CitizenRegion region = orderedRegion();
+		Scenery first = put(region, new Scenery(plugin) {
+			@Override
+			public float distanceToPlayer() {
+				return 0;
+			}
+		});
+		Scenery second = put(region, new Scenery(plugin) {
+			@Override
+			public float distanceToPlayer() {
+				return 0;
+			}
+		});
+		List<Entity> visited = new ArrayList<>();
+
+		try (LogCapture log = new LogCapture()) {
+			registry.forEachActiveEntity(entity -> {
+				visited.add(entity);
+				if (entity == first) {
+					throw new IllegalStateException("Expected by the test: action failure");
+				}
+			});
+			registry.forEachActiveEntity(visited::add);
+
+			Assert.assertEquals(Arrays.asList(first, second, second), visited);
+			Assert.assertTrue(first.isFailed());
+			log.assertOneWarning("Disabled");
+		}
 	}
 
 	/**

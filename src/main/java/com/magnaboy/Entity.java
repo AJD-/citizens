@@ -68,6 +68,11 @@ public class Entity<T extends Entity<T>> {
 	private int modelHeight;
 	private int modelLoadAttempts;
 	private boolean modelLoadFailed;
+	/**
+	 * Set by the registry when a call on this entity from a per-tick or per-frame loop threw. Every loop skips it from
+	 * then on; the entity built when its region is next loaded starts afresh.
+	 */
+	private boolean failed;
 
 	public Entity(CitizensPlugin plugin) {
 		this.plugin = plugin;
@@ -450,6 +455,14 @@ public class Entity<T extends Entity<T>> {
 
 	public boolean isActive() {
 		return active;
+	}
+
+	boolean isFailed() {
+		return failed;
+	}
+
+	void markFailed() {
+		failed = true;
 	}
 
 	/**

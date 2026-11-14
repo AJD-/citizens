@@ -194,15 +194,18 @@ public class CitizenRegistry {
 	}
 
 	/**
-	 * Client thread only: runs {@code function} for every entity within render distance of the local player.
+	 * Client thread only: runs {@code function} for every entity within render distance of the local player, except
+	 * those that have failed. See {@code runIsolated}.
 	 */
 	public void forEachActiveEntity(Consumer<Entity> function) {
 		for (CitizenRegion r : regions.values()) {
 			if (r != null) {
 				for (Entity e : r.entities.values()) {
-					if (e != null && e.distanceToPlayer() <= Util.MAX_ENTITY_RENDER_DISTANCE) {
-						function.accept(e);
-					}
+					runIsolated(e, entity -> {
+						if (entity.distanceToPlayer() <= Util.MAX_ENTITY_RENDER_DISTANCE) {
+							function.accept(entity);
+						}
+					});
 				}
 			}
 		}
@@ -221,11 +224,33 @@ public class CitizenRegistry {
 	}
 
 	/**
-	 * Client thread only.
+	 * Client thread only. Spawns or despawns every entity that has not failed. See
+	 * {@code runIsolated}.
 	 */
 	public void updateAllEntities() {
 		for (CitizenRegion region : regions.values()) {
-			region.updateEntities();
+			for (Entity entity : region.entities.values()) {
+				runIsolated(entity, Entity::update);
+			}
+		}
+	}
+
+	/**
+	 * Client thread only. Runs {@code action} for {@code entity} unless it is null or has failed. If the action throws,
+	 * the entity is logged, despawned and marked failed, so that every loop skips it until its region is next loaded,
+	 * and the caller's loop goes on with the next entity.
+	 */
+	private void runIsolated(Entity entity, Consumer<Entity> action) {
+		if (entity == null || entity.isFailed()) {
+			return;
+		}
+		try {
+			action.accept(entity);
+		} catch (RuntimeException e) {
+			entity.markFailed();
+			log.warn("Disabled {} {} ({}) after an error; it stays despawned until its region is loaded again",
+				entity.getEntityType(), entity.uuid, entity.name, e);
+			despawnSafely(entity);
 		}
 	}
 
