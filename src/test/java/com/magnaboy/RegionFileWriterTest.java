@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -156,6 +157,46 @@ public class RegionFileWriterTest {
 		Assert.assertEquals(1234, saved.get("regionId").getAsInt());
 		Assert.assertEquals(0, saved.getAsJsonArray("citizenRoster").size());
 		Assert.assertEquals(0, saved.getAsJsonArray("sceneryRoster").size());
+	}
+
+	@Test
+	public void replacesAnExistingFileAndLeavesNoTemporaryFile() throws IOException {
+		Path outputDir = folder.newFolder("replace").toPath();
+		Path target = outputDir.resolve("1234.json");
+		Files.write(target, "old".getBytes(StandardCharsets.UTF_8));
+		CitizenRegion region = new CitizenRegion();
+		region.regionId = 1234;
+		region.version = 0.8f;
+
+		new RegionFileWriter(RuneLiteAPI.GSON, outputDir).write(region);
+
+		Assert.assertEquals(1234, parse(target).getAsJsonObject().get("regionId").getAsInt());
+		try (Stream<Path> stream = Files.list(outputDir)) {
+			Assert.assertEquals(Collections.singletonList(target), stream.collect(Collectors.toList()));
+		}
+	}
+
+	@Test
+	public void failedWriteLeavesNoTemporaryFile() throws IOException {
+		Path outputDir = folder.newFolder("blocked").toPath();
+		// A non-empty directory where the file should go: moving the written file onto it fails
+		Path blocker = outputDir.resolve("1234.json");
+		Files.createDirectory(blocker);
+		Files.createFile(blocker.resolve("keep"));
+		CitizenRegion region = new CitizenRegion();
+		region.regionId = 1234;
+
+		try {
+			new RegionFileWriter(RuneLiteAPI.GSON, outputDir).write(region);
+			Assert.fail("Expected an IOException");
+		} catch (IOException expected) {
+			// The move failed
+		}
+
+		try (Stream<Path> stream = Files.list(outputDir)) {
+			Assert.assertEquals(Collections.singletonList(blocker), stream.collect(Collectors.toList()));
+		}
+		Assert.assertTrue(Files.exists(blocker.resolve("keep")));
 	}
 
 	@Test
