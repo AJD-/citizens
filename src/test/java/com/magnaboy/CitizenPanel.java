@@ -2,9 +2,11 @@ package com.magnaboy;
 
 import static com.magnaboy.Util.worldPointToShortCoord;
 import com.magnaboy.serialization.CitizenInfo;
+import com.magnaboy.serialization.EntityInfo;
 import com.magnaboy.serialization.SceneryInfo;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -13,8 +15,6 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
-import javax.inject.Inject;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -22,6 +22,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.ListCellRenderer;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 import net.runelite.api.GameState;
@@ -29,10 +30,13 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 
+/**
+ * The editor's side panel. Swing EDT only: it never touches the client, the registry or an entity. It shows the
+ * {@link EditorSnapshot} the client thread last sent, and hands what the contributor does to {@link CitizensDevPlugin},
+ * which applies it on the client thread.
+ */
 class CitizenPanel extends PluginPanel {
 	private final static String RELOAD_BUTTON_READY = "Reload All Entites";
-	public static WorldPoint selectedPosition;
-	public static Entity selectedEntity;
 	public WorldPoint wanderRegionBL;
 	public WorldPoint wanderRegionTR;
 	public JLabel editingTargetLabel;
@@ -40,11 +44,18 @@ class CitizenPanel extends PluginPanel {
 	public JButton deleteButton;
 	public JLabel reloadWarning;
 	public JCheckBox manualFieldsToggle;
-	private CitizensPlugin plugin;
-	@Inject
-	private CitizenRegistry registry;
+	private CitizensDevPlugin devPlugin;
+	private EditorSnapshot snapshot = EditorSnapshot.EMPTY;
+	/**
+	 * The selected entity's stored orientation while the dropdown cannot show it; see {@link EditorOrientation}.
+	 */
+	private Integer customOrientation;
+	/**
+	 * The selected citizen's stored remarks. Kept as they are while the remarks field still shows them, because a
+	 * remark may itself contain a comma.
+	 */
+	private String[] populatedRemarks;
 	private JLabel label;
-	private CitizensOverlay overlay;
 	// Editor Panel Fields
 	private HashSet<JComponent> allElements;
 	private JButton reloadButton;
@@ -74,9 +85,8 @@ class CitizenPanel extends PluginPanel {
 
 	// End Editor Fields
 
-	public void init(CitizensPlugin plugin, CitizensOverlay overlay) {
-		this.plugin = plugin;
-		this.overlay = overlay;
+	public void init(CitizensDevPlugin devPlugin) {
+		this.devPlugin = devPlugin;
 		final JPanel layoutPanel = new JPanel();
 		layoutPanel.setLayout(new GridBagLayout());
 		add(layoutPanel, BorderLayout.CENTER);
@@ -84,48 +94,29 @@ class CitizenPanel extends PluginPanel {
 		label = new JLabel();
 		label.setHorizontalAlignment(SwingConstants.CENTER);
 
-		// DEV ONLY
 		allElements = new HashSet<>();
-		if (plugin.IS_DEVELOPMENT) {
-			addEditorComponents(layoutPanel);
-			entityTypeChanged();
-		}
-		update();
+		addEditorComponents(layoutPanel);
+		entityTypeChanged();
+		apply(snapshot);
 	}
 
-	public void update() {
-		if (!plugin.IS_DEVELOPMENT) {
-			return;
+	/**
+	 * Shows a snapshot the client thread took, filling the form from the selected entity when the selection changed.
+	 */
+	public void apply(EditorSnapshot snapshot) {
+		this.snapshot = snapshot;
+		label.setText(snapshot.getActiveEntities() + "/" + snapshot.getTotalEntities() + " entities are active");
+		if (snapshot.isSelectionChanged() && snapshot.getSelectedInfo() != null) {
+			populateForm(snapshot.getSelectedInfo());
 		}
-		UpdateEditorFields();
-
-		AtomicInteger activeEntities = new AtomicInteger();
-		AtomicInteger inactiveEntities = new AtomicInteger();
-
-		registry.forEachEntity((entity) -> {
-			if (entity == null) {
-				return;
-			}
-			if (entity.isActive()) {
-				activeEntities.addAndGet(1);
-			} else {
-				inactiveEntities.addAndGet(1);
-			}
-		});
-
-		int totalEntities = activeEntities.get() + inactiveEntities.get();
-		label.setText(activeEntities + "/" + totalEntities + " entities are active");
-
 		UpdateEditorFields();
 	}
 
 	private void UpdateEditorFields() {
-		GameState state = plugin.client.getGameState();
-
-		if (state == GameState.LOGIN_SCREEN || state == GameState.LOGIN_SCREEN_AUTHENTICATOR) {
-			selectedPosition = null;
-		}
-		int dirtySize = registry.dirtyRegionCount();
+		GameState state = snapshot.getGameState();
+		WorldPoint selectedPosition = snapshot.getSelectedPosition();
+		boolean hasSelection = snapshot.getSelectedInfo() != null;
+		int dirtySize = snapshot.getDirtyRegions();
 
 		reloadButton.setEnabled(state == GameState.LOGGED_IN);
 		selectedPositionLbl.setText(selectedPosition == null ? "N/A" : worldPointToShortCoord(selectedPosition));
@@ -139,19 +130,11 @@ class CitizenPanel extends PluginPanel {
 		saveChangesButton.setEnabled(true);
 		saveChangesButton.setText("Save Changes");
 
-		if (selectedEntity != null && !CitizenPanel.selectedEntity.isActive()) {
-			selectedEntity = null;
-		}
+		updateButton.setVisible(hasSelection);
 
-		updateButton.setVisible(selectedEntity != null);
-
-		if (selectedEntity instanceof Citizen) {
-			editingTargetLabel.setText("Editing: " + selectedEntity.name);
-		} else {
-			editingTargetLabel.setText("Editing: Scenery Object");
-		}
-		editingTargetLabel.setVisible(selectedEntity != null);
-		deleteButton.setVisible(selectedEntity != null);
+		editingTargetLabel.setText("Editing: " + snapshot.getSelectedLabel());
+		editingTargetLabel.setVisible(hasSelection);
+		deleteButton.setVisible(hasSelection);
 
 		reloadWarning.setVisible(dirtySize > 0);
 
@@ -160,7 +143,7 @@ class CitizenPanel extends PluginPanel {
 	}
 
 	private String validateFields() {
-		if (selectedPosition == null) {
+		if (snapshot.getSelectedPosition() == null) {
 			return "No Position Selected";
 		}
 
@@ -222,9 +205,7 @@ class CitizenPanel extends PluginPanel {
 			reloadButton.setFocusable(false);
 
 			reloadButton.addActionListener(e -> {
-				selectedEntity = null;
-				plugin.reload();
-				UpdateEditorFields();
+				devPlugin.reloadEntities();
 			});
 			layoutPanel.add(reloadButton, gbc);
 
@@ -296,6 +277,15 @@ class CitizenPanel extends PluginPanel {
 			orientationField = createLabeledComponent(new JComboBox<>(CardinalDirection.values()), "Base Orientation", layoutPanel, gbc);
 			orientationField.setSelectedItem(CardinalDirection.South);
 			orientationField.setFocusable(false);
+			ListCellRenderer<? super CardinalDirection> directionRenderer = orientationField.getRenderer();
+			orientationField.setRenderer((list, value, index, isSelected, cellHasFocus) -> {
+				Component cell = directionRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				// Nothing selected: the selected entity's orientation is not one of the directions
+				if (value == null && customOrientation != null && cell instanceof JLabel) {
+					((JLabel) cell).setText("Custom (" + customOrientation + ")");
+				}
+				return cell;
+			});
 		}
 
 		// Animations
@@ -416,16 +406,16 @@ class CitizenPanel extends PluginPanel {
 			selectWanderBL.setText("Select BL");
 			selectWanderBL.setFocusable(false);
 			selectWanderBL.addActionListener(e -> {
-				wanderRegionBL = selectedPosition;
-				selectWanderBL.setText(Util.worldPointToShortCoord(selectedPosition));
+				wanderRegionBL = snapshot.getSelectedPosition();
+				UpdateEditorFields();
 			});
 
 			selectWanderTR = new JButton();
 			selectWanderTR.setText("Select TR");
 			selectWanderTR.setFocusable(false);
 			selectWanderTR.addActionListener(e -> {
-				wanderRegionTR = selectedPosition;
-				selectWanderTR.setText(Util.worldPointToShortCoord(selectedPosition));
+				wanderRegionTR = snapshot.getSelectedPosition();
+				UpdateEditorFields();
 			});
 
 			createLabeledMultiComponent("Wander Region", layoutPanel, gbc, selectWanderBL, selectWanderTR);
@@ -439,17 +429,15 @@ class CitizenPanel extends PluginPanel {
 			spawnButton.setText("Spawn Entity");
 			spawnButton.setFocusable(false);
 			spawnButton.addActionListener(e -> {
-				if (entityTypeSelection.getSelectedItem() == EntityType.Scenery) {
-					SceneryInfo info = buildSceneryInfo();
-					Scenery scenery = registry.spawnSceneryFromPanel(info);
-					selectedEntity = scenery;
-				} else {
-					CitizenInfo info = buildCitizenInfo(selectedPosition.getRegionID());
-					Citizen citizen = registry.spawnCitizenFromPanel(info);
-					selectedEntity = citizen;
+				WorldPoint position = snapshot.getSelectedPosition();
+				if (position == null) {
+					return;
 				}
-				selectedPosition = null;
-				update();
+				if (entityTypeSelection.getSelectedItem() == EntityType.Scenery) {
+					devPlugin.spawnEntity(buildSceneryInfo(position.getRegionID(), position));
+				} else {
+					devPlugin.spawnEntity(buildCitizenInfo(position.getRegionID(), position));
+				}
 			});
 			layoutPanel.add(spawnButton, gbc);
 
@@ -459,23 +447,21 @@ class CitizenPanel extends PluginPanel {
 			updateButton.setText("Update Entity");
 			updateButton.setFocusable(false);
 			updateButton.addActionListener(e -> {
-				if (selectedEntity.isCitizen()) {
-					CitizenInfo info = buildCitizenInfo(selectedEntity.regionId);
-					if (selectedEntity != null) {
-						info.uuid = selectedEntity.uuid;
-						registry.updateEntity(info);
-					}
-				} else if (selectedEntity.entityType == EntityType.Scenery) {
-					SceneryInfo info = buildSceneryInfo();
-					if (selectedEntity != null) {
-
-						info.uuid = selectedEntity.uuid;
-						registry.updateEntity(info);
-					}
+				EntityInfo selected = snapshot.getSelectedInfo();
+				if (selected == null) {
+					return;
 				}
-
-				update();
-				plugin.reload();
+				// Without a selected tile the entity stays where it is
+				WorldPoint position = snapshot.getSelectedPosition();
+				WorldPoint location = position == null ? selected.worldLocation : position;
+				EntityInfo info;
+				if (selected instanceof CitizenInfo) {
+					info = buildCitizenInfo(selected.regionId, location);
+				} else {
+					info = buildSceneryInfo(selected.regionId, location);
+				}
+				info.uuid = selected.uuid;
+				devPlugin.updateEntity(info);
 			});
 			layoutPanel.add(updateButton, gbc);
 		}
@@ -490,8 +476,10 @@ class CitizenPanel extends PluginPanel {
 			deleteButton.setVisible(false);
 			deleteButton.setBackground(new Color(135, 58, 58));
 			deleteButton.addActionListener(e -> {
-				// removeEntityFromRegion also despawns the entity, on the client thread
-				registry.removeEntityFromRegion(selectedEntity);
+				EntityInfo selected = snapshot.getSelectedInfo();
+				if (selected != null) {
+					devPlugin.deleteEntity(selected.regionId, selected.uuid);
+				}
 			});
 			layoutPanel.add(deleteButton, gbc);
 		}
@@ -504,7 +492,7 @@ class CitizenPanel extends PluginPanel {
 			saveChangesButton.setText("Save Changes");
 			saveChangesButton.setFocusable(false);
 			saveChangesButton.addActionListener(e -> {
-				registry.saveDirtyRegions();
+				devPlugin.saveChanges();
 			});
 
 			gbc.gridx = 0;
@@ -542,21 +530,25 @@ class CitizenPanel extends PluginPanel {
 		return result;
 	}
 
-	private CitizenInfo buildCitizenInfo(int regionId) {
+	private CitizenInfo buildCitizenInfo(int regionId, WorldPoint location) {
 		CitizenInfo info = new CitizenInfo();
 		info.uuid = UUID.randomUUID();
 		info.regionId = regionId;
 		info.name = entityNameField.getText();
 		info.examineText = examineTextField.getText();
-		info.worldLocation = selectedPosition;
+		info.worldLocation = location;
 		info.entityType = (EntityType) entityTypeSelection.getSelectedItem();
 		info.idleAnimation = (AnimationID) animIdIdleSelect.getSelectedItem();
 		info.moveAnimation = (AnimationID) animIdMoveSelect.getSelectedItem();
 		info.modelIds = csvToIntArray(modelIdsField.getText());
 		info.modelRecolorFind = csvToIntArray(recolorFindField.getText());
 		info.modelRecolorReplace = csvToIntArray(recolorReplaceField.getText());
-		info.baseOrientation = ((CardinalDirection) orientationField.getSelectedItem()).getAngle();
-		info.remarks = remarksField.getText().length() > 0 ? remarksField.getText().split(",", -1) : null;
+		info.baseOrientation = selectedOrientation();
+		if (populatedRemarks != null && remarksField.getText().equals(String.join(",", populatedRemarks))) {
+			info.remarks = populatedRemarks.clone();
+		} else {
+			info.remarks = remarksField.getText().length() > 0 ? remarksField.getText().split(",", -1) : null;
+		}
 
 		if (fieldEmpty(scaleFieldX) && fieldEmpty(scaleFieldY) && fieldEmpty(scaleFieldZ)) {
 			info.scale = null;
@@ -585,16 +577,16 @@ class CitizenPanel extends PluginPanel {
 		return info;
 	}
 
-	private SceneryInfo buildSceneryInfo() {
+	private SceneryInfo buildSceneryInfo(int regionId, WorldPoint location) {
 		SceneryInfo info = new SceneryInfo();
 		info.uuid = UUID.randomUUID();
-		info.regionId = selectedPosition.getRegionID();
+		info.regionId = regionId;
 		info.entityType = EntityType.Scenery;
-		info.worldLocation = selectedPosition;
+		info.worldLocation = location;
 		info.modelIds = csvToIntArray(modelIdsField.getText());
 		info.modelRecolorFind = csvToIntArray(recolorFindField.getText());
 		info.modelRecolorReplace = csvToIntArray(recolorReplaceField.getText());
-		info.baseOrientation = ((CardinalDirection) orientationField.getSelectedItem()).getAngle();
+		info.baseOrientation = selectedOrientation();
 		info.idleAnimation = (AnimationID) animIdIdleSelect.getSelectedItem();
 
 		if (fieldEmpty(scaleFieldX) && fieldEmpty(scaleFieldY) && fieldEmpty(scaleFieldZ)) {
@@ -617,6 +609,10 @@ class CitizenPanel extends PluginPanel {
 			};
 		}
 		return info;
+	}
+
+	private int selectedOrientation() {
+		return EditorOrientation.fromDropdown((CardinalDirection) orientationField.getSelectedItem(), customOrientation);
 	}
 
 	private <T extends JComponent> T createLabeledComponent(JComponent component, String label, JPanel panel, GridBagConstraints constraints) {
@@ -707,54 +703,44 @@ class CitizenPanel extends PluginPanel {
 		}
 	}
 
-	public void setSelectedEntity(Entity e) {
-		if (selectedEntity == e) {
-			selectedEntity = null;
-		} else {
-			selectedEntity = e;
-			selectedPosition = e.getWorldLocation();
-		}
+	/**
+	 * Fills the form from the selected entity's stored roster entry.
+	 */
+	private void populateForm(EntityInfo info) {
+		entityTypeSelection.setSelectedItem(info instanceof SceneryInfo ? EntityType.Scenery : info.entityType);
+		customOrientation = EditorOrientation.customValue(info.baseOrientation);
+		orientationField.setSelectedItem(EditorOrientation.toDropdown(info.baseOrientation));
+		orientationField.repaint();
+		animIdIdleSelect.setSelectedItem(info.idleAnimation);
+		modelIdsField.setText(toCsv(info.modelIds));
+		recolorFindField.setText(toCsv(info.modelRecolorFind));
+		recolorReplaceField.setText(toCsv(info.modelRecolorReplace));
 
-		entityTypeSelection.setSelectedItem(e.entityType);
-		orientationField.setSelectedItem(CardinalDirection.fromInteger(e.baseOrientation));
-		animIdIdleSelect.setSelectedItem(e.idleAnimationId);
-		modelIdsField.setText(e.getModelIDsString());
-		recolorFindField.setText(e.getRecolorFindString());
-		recolorReplaceField.setText(e.getRecolorReplaceString());
+		translateFieldX.setText(info.translate == null ? "" : String.valueOf(info.translate[0]));
+		translateFieldY.setText(info.translate == null ? "" : String.valueOf(info.translate[1]));
+		translateFieldZ.setText(info.translate == null ? "" : String.valueOf(info.translate[2]));
 
-		if (e.translate != null) {
-			translateFieldX.setText(String.valueOf(e.translate[0]));
-			translateFieldY.setText(String.valueOf(e.translate[1]));
-			translateFieldZ.setText(String.valueOf(e.translate[2]));
-		}
+		scaleFieldX.setText(info.scale == null ? "" : String.valueOf(info.scale[0]));
+		scaleFieldY.setText(info.scale == null ? "" : String.valueOf(info.scale[1]));
+		scaleFieldZ.setText(info.scale == null ? "" : String.valueOf(info.scale[2]));
 
-		if (e.scale != null) {
-			scaleFieldX.setText(String.valueOf(e.scale[0]));
-			scaleFieldY.setText(String.valueOf(e.scale[1]));
-			scaleFieldZ.setText(String.valueOf(e.scale[2]));
-		}
-
-		if (e.isCitizen()) {
-			Citizen c = (Citizen) e;
+		populatedRemarks = null;
+		if (info instanceof CitizenInfo) {
+			CitizenInfo c = (CitizenInfo) info;
 			entityNameField.setText(c.name);
-			examineTextField.setText(c.examine);
-			animIdMoveSelect.setSelectedItem(c.movingAnimationId);
-			if (c.remarks != null) {
-				remarksField.setText(String.join(",", c.remarks));
+			examineTextField.setText(c.examineText);
+			animIdMoveSelect.setSelectedItem(c.moveAnimation);
+			populatedRemarks = c.remarks;
+			remarksField.setText(c.remarks == null ? "" : String.join(",", c.remarks));
+
+			if (c.entityType == EntityType.WanderingCitizen) {
+				wanderRegionBL = c.wanderBoxBL;
+				wanderRegionTR = c.wanderBoxTR;
 			}
 		}
-
-		if (e.entityType == EntityType.WanderingCitizen) {
-			WanderingCitizen w = (WanderingCitizen) e;
-			wanderRegionBL = w.wanderRegionBL;
-			wanderRegionTR = w.wanderRegionTR;
-		}
-
-		update();
 	}
 
-	public void cleanup() {
-		selectedPosition = null;
-		selectedEntity = null;
+	private static String toCsv(int[] values) {
+		return values == null ? "" : Util.intArrayToString(values);
 	}
 }

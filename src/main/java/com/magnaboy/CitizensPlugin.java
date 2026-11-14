@@ -2,15 +2,13 @@ package com.magnaboy;
 
 import com.google.gson.Gson;
 import com.google.inject.Binder;
+import com.google.inject.Module;
 import com.google.inject.Provides;
-import java.awt.Color;
-import java.awt.image.BufferedImage;
+import com.google.inject.util.Providers;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
-import javax.swing.SwingUtilities;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -18,7 +16,6 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.MenuAction;
 import net.runelite.api.Point;
-import net.runelite.api.Tile;
 import net.runelite.api.WorldView;
 import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.GameStateChanged;
@@ -37,25 +34,17 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.util.ColorUtil;
-import net.runelite.client.util.ImageUtil;
 
 @Slf4j
 @PluginDescriptor(name = "Citizens", description = "Adds citizens to help bring life to the world")
 public class CitizensPlugin extends Plugin {
 	private static final int REMARK_DISTANCE = 15;
-	private static final int DEV_PANEL_REFRESH_TICKS = 5;
 
 	@Inject
 	public Client client;
 	@Inject
 	public ClientThread clientThread;
-	public CitizenPanel panel;
-
-	public boolean IS_DEVELOPMENT = false;
 	@Inject
 	public Gson gson;
 	@Inject
@@ -69,9 +58,6 @@ public class CitizensPlugin extends Plugin {
 	private CitizensOverlay citizensOverlay;
 	@Inject
 	private CitizenRegistry registry;
-	@Inject
-	private ClientToolbar clientToolbar;
-	private NavigationButton navButton;
 	/**
 	 * Drives the remark and wander rolls. Only used on the client thread.
 	 */
@@ -91,24 +77,22 @@ public class CitizensPlugin extends Plugin {
 		binder.bind(CitizenRegistry.class);
 	}
 
+	/**
+	 * Lets a plugin that declares {@code @PluginDependency(CitizensPlugin.class)} inject this plugin and its registry.
+	 * The bindings hand out these existing instances: providers rather than {@code toInstance}, so the dependent
+	 * injector neither creates a second registry nor injects this plugin's fields again.
+	 */
+	@Override
+	protected Module getPublicModule() {
+		return binder -> {
+			binder.bind(CitizensPlugin.class).toProvider(Providers.of(this));
+			binder.bind(CitizenRegistry.class).toProvider(Providers.of(registry));
+		};
+	}
+
 	@Override
 	protected void startUp() {
-		panel = injector.getInstance(CitizenPanel.class);
-		panel.init(this, citizensOverlay);
 		overlayManager.add(citizensOverlay);
-
-		// For now, the only thing in the panel is dev stuff
-		if (IS_DEVELOPMENT) {
-			// Add to sidebar
-			final BufferedImage icon = ImageUtil.loadImageResource(CitizensPlugin.class, "/citizens_icon.png");
-			navButton = NavigationButton.builder()
-				.tooltip("Citizens")
-				.icon(icon)
-				.priority(7)
-				.panel(panel)
-				.build();
-			clientToolbar.addNavigation(navButton);
-		}
 
 		// Shows citizens straight away when enabled while logged in. Runs after any cleanup task queued by a
 		// preceding shutDown(): invokeLater tasks run in FIFO order.
@@ -120,18 +104,6 @@ public class CitizensPlugin extends Plugin {
 		overlayManager.remove(citizensOverlay);
 		// Despawn every entity before anything is cleared, so that every RuneLiteObject leaves the scene
 		clientThread.invokeLater(registry::cleanUp);
-		if (IS_DEVELOPMENT) {
-			panel.cleanup();
-			panel.update();
-		}
-		if (navButton != null) {
-			clientToolbar.removeNavigation(navButton);
-		}
-	}
-
-	void reload() {
-		shutDown();
-		startUp();
 	}
 
 	/**
@@ -227,10 +199,6 @@ public class CitizensPlugin extends Plugin {
 		}
 		registry.updateAllEntities();
 		rollIdleBehaviour();
-
-		if (IS_DEVELOPMENT && gameTick % DEV_PANEL_REFRESH_TICKS == 0) {
-			SwingUtilities.invokeLater(panel::update);
-		}
 	}
 
 	/**
@@ -270,96 +238,30 @@ public class CitizensPlugin extends Plugin {
 
 	@Subscribe
 	public void onMenuOpened(MenuOpened ignored) {
-		final int[] firstMenuIndex = {1};
-
 		Point mousePos = client.getMouseCanvasPosition();
-		final AtomicBoolean[] clickedCitizen = {new AtomicBoolean(false)};
 		registry.forEachActiveEntity(entity -> {
-			if (entity.entityType == EntityType.Scenery && !IS_DEVELOPMENT) {
+			if (entity.entityType == EntityType.Scenery || entity.name == null || entity.examine == null) {
 				return;
 			}
-			if ((entity.name != null && entity.examine != null) || IS_DEVELOPMENT) {
-				SimplePolygon clickbox;
-				try {
-					clickbox = entity.getClickbox();
-				} catch (IllegalStateException err) {
-					return;
-				}
-				if (clickbox == null) {
-					return;
-				}
-				boolean doesClickBoxContainMousePos = clickbox.contains(mousePos.getX(), mousePos.getY());
-				if (doesClickBoxContainMousePos) {
-					if (doesClickBoxContainMousePos) {
-						client.createMenuEntry(firstMenuIndex[0])
-							.setOption("Examine")
-							.setTarget("<col=fffe00>" + entity.name + "</col>")
-							.setType(MenuAction.RUNELITE)
-							.setParam0(0)
-							.setParam1(0)
-							.setDeprioritized(true);
-					}
-				}
-
-				// Select/Deselect
-				if (IS_DEVELOPMENT && doesClickBoxContainMousePos) {
-					String action = "Select";
-					if (CitizenPanel.selectedEntity == entity) {
-						action = "Deselect";
-						clickedCitizen[0].set(true);
-					}
-
-					client.createMenuEntry(firstMenuIndex[0]++)
-						.setOption(ColorUtil.wrapWithColorTag("Citizen Editor", Color.cyan))
-						.setTarget(action + " <col=fffe00>" + entity.name + "</col>")
-						.setType(MenuAction.RUNELITE)
-						.setDeprioritized(true)
-						.onClick(e -> {
-							panel.setSelectedEntity(entity);
-							panel.update();
-						});
-				}
+			SimplePolygon clickbox;
+			try {
+				clickbox = entity.getClickbox();
+			} catch (IllegalStateException err) {
+				return;
+			}
+			if (clickbox == null) {
+				return;
+			}
+			if (clickbox.contains(mousePos.getX(), mousePos.getY())) {
+				client.createMenuEntry(1)
+					.setOption("Examine")
+					.setTarget("<col=fffe00>" + entity.name + "</col>")
+					.setType(MenuAction.RUNELITE)
+					.setParam0(0)
+					.setParam1(0)
+					.setDeprioritized(true);
 			}
 		});
-
-		if (IS_DEVELOPMENT) {
-			// Tile Selection
-			final WorldView wv = client.getTopLevelWorldView();
-			final Tile selectedSceneTile = wv == null ? null : wv.getSelectedSceneTile();
-			if (selectedSceneTile != null) {
-				final boolean same = CitizenPanel.selectedPosition != null && CitizenPanel.selectedPosition.equals(selectedSceneTile.getWorldLocation());
-				final String action = same ? "Deselect" : "Select";
-				client.createMenuEntry(firstMenuIndex[0]++)
-					.setOption(ColorUtil.wrapWithColorTag("Citizen Editor", Color.cyan))
-					.setTarget(action + " <col=fffe00>Tile</col>")
-					.setType(MenuAction.RUNELITE)
-					.setDeprioritized(true)
-					.onClick(e -> {
-						if (same) {
-							CitizenPanel.selectedPosition = null;
-						} else {
-							CitizenPanel.selectedPosition = selectedSceneTile.getWorldLocation();
-						}
-						panel.update();
-					});
-			}
-			// Entity Deselect (from anywhere)
-			if (CitizenPanel.selectedEntity != null && !clickedCitizen[0].get()) {
-				String name = "Scenery Object";
-				if (CitizenPanel.selectedEntity instanceof Citizen) {
-					name = CitizenPanel.selectedEntity.name;
-				}
-				client.createMenuEntry(firstMenuIndex[0] - 1)
-					.setOption(ColorUtil.wrapWithColorTag("Citizen Editor", Color.cyan))
-					.setTarget("Deselect <col=fffe00>" + name + "</col>")
-					.setType(MenuAction.RUNELITE)
-					.setDeprioritized(true)
-					.onClick(e -> {
-						panel.setSelectedEntity(CitizenPanel.selectedEntity);
-						panel.update();
-					});
-			}
-		}
 	}
 
 	@Subscribe

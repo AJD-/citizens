@@ -330,10 +330,6 @@ public class Entity<T extends Entity<T>> {
 		}
 		active = false;
 
-		if (wasActive && plugin.IS_DEVELOPMENT) {
-			plugin.panel.update();
-		}
-
 		return wasActive;
 	}
 
@@ -404,15 +400,6 @@ public class Entity<T extends Entity<T>> {
 		return "N:" + name + " T:" + entityType + " ID:" + uuid.toString().substring(0, 6) + " D:" + dist;
 	}
 
-	public void validate() {
-		if (uuid == null) {
-			throw new IllegalStateException(debugName() + " has no uuid.");
-		}
-		if (regionId == null) {
-			throw new IllegalStateException(debugName() + " has no regionId.");
-		}
-	}
-
 	/**
 	 * Client thread only. Builds the model and creates the object on first use, then places and shows it. If a
 	 * model is not loaded yet nothing is shown and the next {@link #update()} tries again.
@@ -459,10 +446,6 @@ public class Entity<T extends Entity<T>> {
 
 		rlObject.setActive(true);
 		active = true;
-
-		if (plugin.IS_DEVELOPMENT) {
-			plugin.panel.update();
-		}
 
 		return true;
 	}

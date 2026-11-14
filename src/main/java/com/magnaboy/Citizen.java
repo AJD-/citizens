@@ -58,36 +58,6 @@ public class Citizen<T extends Citizen<T>> extends Entity<T> {
 		return (T) this;
 	}
 
-	public void validate() {
-		super.validate();
-		if (name == null) {
-			throw new IllegalStateException(debugName() + " has no name.");
-		}
-
-		if (examine == null) {
-			throw new IllegalStateException(debugName() + " has no examine.");
-		}
-
-		if (entityType == EntityType.WanderingCitizen) {
-			WanderingCitizen casted = (WanderingCitizen) this;
-			if (casted.boundingBox == null) {
-				throw new IllegalStateException(debugName() + " has no boundingBox.");
-			}
-			if (casted.wanderRegionBL == null) {
-				throw new IllegalStateException(debugName() + " has no wanderRegionBL.");
-			}
-			if (casted.wanderRegionTR == null) {
-				throw new IllegalStateException(debugName() + " has no wanderRegionTR.");
-			}
-		}
-
-		for (String remark : remarks) {
-			if (remark.isEmpty()) {
-				throw new IllegalStateException(debugName() + " has empty remark.");
-			}
-		}
-	}
-
 	public boolean despawn() {
 		targetQueue.clear();
 		this.activeRemark = null;

@@ -1,23 +1,16 @@
 package com.magnaboy;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import static com.magnaboy.Util.getRandomItem;
 import com.magnaboy.scripting.ScriptLoader;
 import com.magnaboy.serialization.CitizenInfo;
 import com.magnaboy.serialization.EntityInfo;
 import com.magnaboy.serialization.SceneryInfo;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.io.Writer;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -27,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -35,20 +29,17 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Owns every loaded region, the entities built from them and the script cache.
  * <p>
- * Concurrency: the maps are read and written only on the client thread. The one tolerated exception until the dev
- * editor moves out of {@code src/main} is the editor's Swing handlers (the "DEVELOPMENT SECTION" below).
+ * Concurrency: the maps and rosters are read and written only on the client thread.
  */
 @Slf4j
 @Singleton
 public class CitizenRegistry {
 	private static final float VALID_REGION_VERSION = 0.8f;
-	private static final String REGIONDATA_DIRECTORY = new File("src/main/resources/RegionData/").getAbsolutePath();
 
 	private final CitizensPlugin plugin;
 	private final Gson gson;
 	private final ScriptLoader scriptLoader;
 	private final Map<Integer, CitizenRegion> regions = new HashMap<>();
-	private final Map<Integer, CitizenRegion> dirtyRegions = new HashMap<>();
 	/**
 	 * The region ids last passed to {@link #syncRegions(Set)}, including those without a data file, so a miss is not
 	 * retried while it stays in the loaded map.
@@ -93,10 +84,6 @@ public class CitizenRegistry {
 	}
 
 	public CitizenRegion loadRegion(int regionId) {
-		return loadRegion(regionId, false);
-	}
-
-	public CitizenRegion loadRegion(int regionId, boolean createIfNotExists) {
 		if (regions.containsKey(regionId)) {
 			return regions.get(regionId);
 		}
@@ -104,18 +91,6 @@ public class CitizenRegistry {
 		InputStream inputStream = CitizenRegistry.class.getResourceAsStream("/RegionData/" + regionId + ".json");
 		if (inputStream == null) {
 			// No region file was found.
-			// If in development, create one, save it and then try to load it.
-			if (plugin.IS_DEVELOPMENT && createIfNotExists) {
-				CitizenRegion region = new CitizenRegion();
-				region.regionId = regionId;
-				region.version = VALID_REGION_VERSION;
-				try {
-					saveRegion(region);
-				} catch (IOException ex) {
-					throw new RuntimeException(ex);
-				}
-				return loadRegion(regionId, false);
-			}
 			return null;
 		}
 
@@ -136,9 +111,6 @@ public class CitizenRegistry {
 			for (SceneryInfo sInfo : region.sceneryRoster) {
 				Scenery scenery = loadScenery(sInfo);
 				region.entities.put(scenery.uuid, scenery);
-			}
-			if (plugin.IS_DEVELOPMENT) {
-				region.entities.values().forEach(Entity::validate);
 			}
 			regions.put(regionId, region);
 			return region;
@@ -256,9 +228,6 @@ public class CitizenRegistry {
 		for (CitizenRegion region : regions.values()) {
 			region.updateEntities();
 		}
-		if (plugin.IS_DEVELOPMENT) {
-			plugin.panel.update();
-		}
 	}
 
 	/**
@@ -365,7 +334,6 @@ public class CitizenRegistry {
 		}
 		regions.clear();
 		syncedRegionIds.clear();
-		dirtyRegions.clear();
 		scriptLoader.clear();
 	}
 
@@ -373,123 +341,146 @@ public class CitizenRegistry {
 		return regions.isEmpty();
 	}
 
-	// DEVELOPMENT SECTION
-	public Citizen spawnCitizenFromPanel(CitizenInfo info) {
-		Citizen citizen = loadCitizen(info);
-		CitizenRegion region = loadRegion(info.regionId, true);
-		region.entities.put(info.uuid, citizen);
-		region.citizenRoster.add(info);
-		dirtyRegion(region);
-		plugin.clientThread.invoke(this::updateAllEntities);
-		return citizen;
-	}
+	// In-memory editing, used by the contributor editor (a separate dev-only plugin in the same package). None of
+	// these spawn anything; the next updateAllEntities() does.
 
-	public Scenery spawnSceneryFromPanel(SceneryInfo info) {
-		Scenery scenery = loadScenery(info);
-		CitizenRegion region = loadRegion(info.regionId, true);
-		region.entities.put(info.uuid, scenery);
-		region.sceneryRoster.add(info);
-		dirtyRegion(region);
-		plugin.clientThread.invoke(this::updateAllEntities);
-		return scenery;
-	}
+	/**
+	 * Client thread only. The roster entry for an entity, or null when its region is not loaded or has no such entry.
+	 */
+	EntityInfo getEntityInfo(int regionId, UUID uuid) {
+		assert plugin.client.isClientThread();
 
-	public void updateEntity(EntityInfo info) {
-		if (info.entityType == EntityType.Scenery) {
-			CitizenRegion region = regions.get(info.regionId);
-			Entity e = region.entities.get(info.uuid);
-			Scenery updated = loadScenery((SceneryInfo) info);
-
-			addEntityToRegion(updated, info);
-			removeEntityFromRegion(e);
-		} else {
-			CitizenRegion region = regions.get(info.regionId);
-			Entity e = region.entities.get(info.uuid);
-			Citizen updated = loadCitizen((CitizenInfo) info);
-
-			addEntityToRegion(updated, info);
-			removeEntityFromRegion(e);
+		CitizenRegion region = regions.get(regionId);
+		if (region == null) {
+			return null;
 		}
+		for (CitizenInfo info : region.citizenRoster) {
+			if (Objects.equals(info.uuid, uuid)) {
+				return info;
+			}
+		}
+		for (SceneryInfo info : region.sceneryRoster) {
+			if (Objects.equals(info.uuid, uuid)) {
+				return info;
+			}
+		}
+		return null;
 	}
 
-	public void dirtyRegion(CitizenRegion region) {
-		dirtyRegions.put(region.regionId, region);
+	/**
+	 * Client thread only. Adds an empty region for {@code regionId}, in memory only, and returns it. Returns the loaded
+	 * region instead if there is one.
+	 */
+	CitizenRegion createRegion(int regionId) {
+		assert plugin.client.isClientThread();
+
+		CitizenRegion region = regions.get(regionId);
+		if (region != null) {
+			return region;
+		}
+		region = new CitizenRegion();
+		region.regionId = regionId;
+		region.version = VALID_REGION_VERSION;
+		regions.put(regionId, region);
+		return region;
 	}
 
-	public void clearDirtyRegions() {
-		dirtyRegions.clear();
+	/**
+	 * Client thread only. Builds an entity from {@code info} and adds it, and {@code info} at the end of its roster, to
+	 * the loaded region {@code info.regionId}.
+	 *
+	 * @return the new entity, or null if that region is not loaded
+	 */
+	Entity addEntity(EntityInfo info) {
+		assert plugin.client.isClientThread();
+
+		CitizenRegion region = regions.get(info.regionId);
+		if (region == null) {
+			return null;
+		}
+		Entity entity = buildEntity(info);
+		region.entities.put(info.uuid, entity);
+		addToRoster(region, info);
+		return entity;
 	}
 
-	public void addEntityToRegion(Entity e, EntityInfo info) {
-		CitizenRegion region = regions.get(e.regionId);
-		region.entities.put(e.uuid, e);
+	/**
+	 * Client thread only. Replaces the entity {@code info.uuid} of the loaded region {@code info.regionId} with one built
+	 * from {@code info}. The roster entry is replaced where it stands, so the roster order is kept. The old entity is
+	 * despawned.
+	 *
+	 * @return the new entity, or null if the region or the entity is not loaded
+	 */
+	Entity updateEntity(EntityInfo info) {
+		assert plugin.client.isClientThread();
+
+		CitizenRegion region = regions.get(info.regionId);
+		Entity old = region == null ? null : region.entities.get(info.uuid);
+		if (old == null) {
+			return null;
+		}
+		Entity updated = buildEntity(info);
+		if (!replaceInRoster(region, info)) {
+			removeFromRosters(region, info.uuid);
+			addToRoster(region, info);
+		}
+		region.entities.put(info.uuid, updated);
+		despawnSafely(old);
+		return updated;
+	}
+
+	/**
+	 * Client thread only. Despawns the entity and removes it and its roster entry from its region.
+	 *
+	 * @return whether its region was loaded
+	 */
+	boolean removeEntity(Entity entity) {
+		assert plugin.client.isClientThread();
+
+		despawnSafely(entity);
+		CitizenRegion region = regions.get(entity.regionId);
+		if (region == null) {
+			return false;
+		}
+		region.entities.remove(entity.uuid);
+		removeFromRosters(region, entity.uuid);
+		return true;
+	}
+
+	private Entity buildEntity(EntityInfo info) {
+		if (info instanceof CitizenInfo) {
+			return loadCitizen((CitizenInfo) info);
+		}
+		return loadScenery((SceneryInfo) info);
+	}
+
+	private static void addToRoster(CitizenRegion region, EntityInfo info) {
 		if (info instanceof CitizenInfo) {
 			region.citizenRoster.add((CitizenInfo) info);
-		}
-		if (info instanceof SceneryInfo) {
+		} else {
 			region.sceneryRoster.add((SceneryInfo) info);
 		}
 	}
 
-	private void removeEntityFromRegion(Citizen citizen, CitizenRegion region) {
-		CitizenInfo info = region.citizenRoster.stream()
-			.filter(c -> Objects.equals(c.uuid, citizen.uuid))
-			.findFirst()
-			.orElse(null);
-		region.citizenRoster.remove(info);
-	}
-
-	private void removeEntityFromRegion(Scenery scenery, CitizenRegion region) {
-		SceneryInfo info = region.sceneryRoster.stream()
-			.filter(c -> Objects.equals(c.uuid, scenery.uuid))
-			.findFirst()
-			.orElse(null);
-		region.sceneryRoster.remove(info);
-	}
-
-	public void removeEntityFromRegion(Entity e) {
-		CitizenRegion region = regions.get(e.regionId);
-		if (e instanceof Citizen) {
-			removeEntityFromRegion((Citizen) e, region);
+	private static boolean replaceInRoster(CitizenRegion region, EntityInfo info) {
+		if (info instanceof CitizenInfo) {
+			return replaceInRoster(region.citizenRoster, (CitizenInfo) info);
 		}
-		if (e instanceof Scenery) {
-			removeEntityFromRegion((Scenery) e, region);
-		}
-
-		region.entities.remove(e.uuid);
-		plugin.clientThread.invoke(() -> {
-			e.despawn();
-		});
-		dirtyRegion(region);
+		return replaceInRoster(region.sceneryRoster, (SceneryInfo) info);
 	}
 
-	public int dirtyRegionCount() {
-		return dirtyRegions.size();
-	}
-
-	public void saveDirtyRegions() {
-		for (Map.Entry<Integer, CitizenRegion> region : dirtyRegions.entrySet()) {
-			try {
-				saveRegion(region.getValue());
-			} catch (IOException e) {
-				throw new RuntimeException(e);
+	private static <I extends EntityInfo> boolean replaceInRoster(List<I> roster, I info) {
+		for (int i = 0; i < roster.size(); i++) {
+			if (Objects.equals(roster.get(i).uuid, info.uuid)) {
+				roster.set(i, info);
+				return true;
 			}
 		}
-		clearDirtyRegions();
+		return false;
 	}
 
-	private void saveRegion(CitizenRegion region) throws IOException {
-		try {
-			Path path = Paths.get(REGIONDATA_DIRECTORY, region.regionId + ".json");
-			Writer wr = new BufferedWriter(new FileWriter(path.toString()));
-			GsonBuilder gb = gson.newBuilder();
-			gb.setPrettyPrinting();
-			Gson prettyGson = gb.create();
-			prettyGson.toJson(region, wr);
-			wr.flush();
-			wr.close();
-		} catch (IOException e) {
-			throw new IOException(e);
-		}
+	private static void removeFromRosters(CitizenRegion region, UUID uuid) {
+		region.citizenRoster.removeIf(info -> Objects.equals(info.uuid, uuid));
+		region.sceneryRoster.removeIf(info -> Objects.equals(info.uuid, uuid));
 	}
 }
