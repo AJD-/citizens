@@ -45,12 +45,6 @@ public class DataIntegrityTest {
 	private static final Path SCRIPT_DIR = Paths.get("src", "main", "resources", "Scripts");
 	private static final String NPC_MODELS_RESOURCE = "/npcs-models.json";
 
-	// TODO: known existing-data violation of the NPC model id check, see .superpowers/sdd/
-	// this-runelite-plugin-is-federated-flame/wp2-report.md. Entries are "<file>:<uuid>" ("Afrah" uses model 431,
-	// which is not in npcs-models.json). Remove the entry once the data is fixed.
-	private static final Set<String> KNOWN_INVALID_NPC_MODEL_CITIZENS = new HashSet<>(Arrays.asList(
-		"12853.json:fc28fec2-c105-49ab-8040-e36dda874646"));
-
 	private static final Set<EntityType> CITIZEN_TYPES = new HashSet<>(Arrays.asList(
 		EntityType.StationaryCitizen, EntityType.WanderingCitizen, EntityType.ScriptedCitizen));
 
@@ -456,8 +450,7 @@ public class DataIntegrityTest {
 			List<CitizenInfo> infos = citizens(region);
 			for (int i = 0; i < infos.size(); i++) {
 				CitizenInfo info = infos.get(i);
-				if (info.modelIds == null
-					|| KNOWN_INVALID_NPC_MODEL_CITIZENS.contains(region.fileName + ":" + info.uuid)) {
+				if (info.modelIds == null) {
 					continue;
 				}
 				for (int id : info.modelIds) {
