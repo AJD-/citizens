@@ -1,6 +1,6 @@
 package com.magnaboy;
 
-import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 import net.runelite.api.Perspective;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
@@ -8,23 +8,21 @@ import net.runelite.api.coords.WorldPoint;
 public final class Util {
 	public final static int JAU_FULL_ROTATION = 2048;
 	public final static int MAX_ENTITY_RENDER_DISTANCE = 25;
-	// For picking spawn and wander positions and remark text; the behaviour rolls use the plugin's own Random
-	private static final Random RANDOM = new Random();
 
 	public static int getRandom(int min, int max) {
 		if (min == max) {
 			return min;
 		}
-		return RANDOM.nextInt((max - min) + 1) + min;
+		return ThreadLocalRandom.current().nextInt((max - min) + 1) + min;
 	}
 
 	public static <T> T getRandomItem(T[] items) {
-		int index = RANDOM.nextInt(items.length);
+		int index = ThreadLocalRandom.current().nextInt(items.length);
 		return items[index];
 	}
 
 	public static int getRandomItem(int[] items) {
-		int index = RANDOM.nextInt(items.length);
+		int index = ThreadLocalRandom.current().nextInt(items.length);
 		return items[index];
 	}
 
