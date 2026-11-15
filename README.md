@@ -38,6 +38,7 @@ This starts a RuneLite development client with the plugin loaded. Like any clien
 - `src/main/resources/RegionData/<regionId>.json`: one file per map region, listing its citizens and scenery.
 - `src/main/resources/Scripts/*.json`: the routines used by scripted citizens.
 - `src/test/java`: the tests and the dev editor.
+- `tools/cache-diff`: a maintainer tool for repairing ids after a game update.
 
 # Adding or editing citizens (dev editor)
 
@@ -83,10 +84,9 @@ script exists. `./gradlew build` runs them too. When a check fails, read the mes
 
 # When a game update breaks models or animations
 
-After a game update, citizens may have the wrong or missing body parts, or broken animations. A maintainer tool on the
-`cache-diff` branch of this repository (`tools/cache-diff`, with its own README) compares an old and a new game cache and
-proposes replacement ids. It can update the region files for you. Its proposals are evidence, not proof, so check the
-result in game.
+After a game update, citizens may have the wrong or missing body parts, or broken animations. The `tools/cache-diff` tool
+compares an old and a new game cache and proposes replacement ids. It can update the region files for you. Its proposals
+are evidence, not proof, so check the result in game. See [tools/cache-diff/README.md](tools/cache-diff/README.md).
 
 # Guidelines For Adding Citizens
 
